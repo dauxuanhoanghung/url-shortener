@@ -1,13 +1,21 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { urlService } from '../services/urlService'
-import type { ShortURL } from '../types'
+import { sseService } from '../services/sseService'
+import type { ShortURL, SSEUrlDeletedEvent } from '../types'
+
+export interface DeletedNotification {
+  id: string
+  shortCode: string
+  message: string
+}
 
 export const useUrlStore = defineStore('url', () => {
   const urls = ref<ShortURL[]>([])
   const total = ref(0)
   const loading = ref(false)
   const error = ref('')
+  const deletedNotifications = ref<DeletedNotification[]>([])
 
   async function fetchAll() {
     loading.value = true
@@ -55,5 +63,42 @@ export const useUrlStore = defineStore('url', () => {
     }
   }
 
-  return { urls, total, loading, error, fetchAll, create, remove }
+  // Called by the SSE handler when the backend deletes a dead-link URL.
+  function handleUrlDeleted(event: SSEUrlDeletedEvent) {
+    urls.value = urls.value.filter((u) => u.id !== event.url_id)
+    total.value = Math.max(0, total.value - 1)
+    deletedNotifications.value.push({
+      id: event.url_id,
+      shortCode: event.short_code,
+      message: `/${event.short_code} was removed — the original URL returned ${event.http_status || 'no response'}.`,
+    })
+  }
+
+  function dismissNotification(id: string) {
+    deletedNotifications.value = deletedNotifications.value.filter((n) => n.id !== id)
+  }
+
+  function startSSE(token: string) {
+    sseService.connect(token)
+    sseService.onUrlDeleted(handleUrlDeleted)
+  }
+
+  function stopSSE() {
+    sseService.disconnect()
+  }
+
+  return {
+    urls,
+    total,
+    loading,
+    error,
+    deletedNotifications,
+    fetchAll,
+    create,
+    remove,
+    handleUrlDeleted,
+    dismissNotification,
+    startSSE,
+    stopSSE,
+  }
 })

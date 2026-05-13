@@ -10,6 +10,7 @@ import (
 	"github.com/dauxuanhoanghung/url-shortener/internal/dto"
 	"github.com/dauxuanhoanghung/url-shortener/internal/model"
 	"github.com/dauxuanhoanghung/url-shortener/internal/repository"
+	"github.com/dauxuanhoanghung/url-shortener/internal/worker"
 	"github.com/dauxuanhoanghung/url-shortener/pkg/utils"
 	"github.com/google/uuid"
 )
@@ -38,19 +39,25 @@ type URLService interface {
 
 type urlService struct {
 	repo         repository.URLRepository
+	metaRepo     repository.URLMetadataRepository
 	userPlanRepo repository.UserPlanRepository
 	planRepo     repository.PlanRepository
+	worker       worker.MetadataWorker
 }
 
 func NewURLService(
 	repo repository.URLRepository,
+	metaRepo repository.URLMetadataRepository,
 	userPlanRepo repository.UserPlanRepository,
 	planRepo repository.PlanRepository,
+	w worker.MetadataWorker,
 ) URLService {
 	return &urlService{
 		repo:         repo,
+		metaRepo:     metaRepo,
 		userPlanRepo: userPlanRepo,
 		planRepo:     planRepo,
+		worker:       w,
 	}
 }
 
@@ -103,7 +110,18 @@ func (s *urlService) Create(ctx context.Context, userID uuid.UUID, req dto.Creat
 		return nil, ErrShortCodeRetry
 	}
 
-	return toURLResponse(created, baseURL), nil
+	meta, err := s.metaRepo.Create(ctx, created.ID)
+	if err == nil {
+		s.worker.Submit(worker.MetadataJob{
+			MetadataID: meta.ID,
+			URLID:      created.ID,
+			ShortCode:  created.ShortCode,
+			UserID:     userID,
+			TargetURL:  created.OriginalURL,
+		})
+	}
+
+	return toURLResponse(created, nil, baseURL), nil
 }
 
 func (s *urlService) List(ctx context.Context, userID uuid.UUID, limit, offset int, baseURL string) (*dto.ListURLResponse, error) {
@@ -114,7 +132,7 @@ func (s *urlService) List(ctx context.Context, userID uuid.UUID, limit, offset i
 		offset = 0
 	}
 
-	urls, err := s.repo.ListByUser(ctx, userID, limit, offset)
+	rows, err := s.repo.ListByUserWithMeta(ctx, userID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -124,9 +142,9 @@ func (s *urlService) List(ctx context.Context, userID uuid.UUID, limit, offset i
 		return nil, err
 	}
 
-	items := make([]dto.URLResponse, 0, len(urls))
-	for i := range urls {
-		items = append(items, *toURLResponse(&urls[i], baseURL))
+	items := make([]dto.URLResponse, 0, len(rows))
+	for i := range rows {
+		items = append(items, *toURLResponse(&rows[i].URL, rows[i].Metadata, baseURL))
 	}
 	return &dto.ListURLResponse{URLs: items, Total: total}, nil
 }
@@ -171,8 +189,8 @@ func validateURL(raw string) error {
 	return nil
 }
 
-func toURLResponse(u *model.ShortURL, baseURL string) *dto.URLResponse {
-	return &dto.URLResponse{
+func toURLResponse(u *model.ShortURL, meta *model.URLMetadata, baseURL string) *dto.URLResponse {
+	resp := &dto.URLResponse{
 		ID:          u.ID.String(),
 		ShortCode:   u.ShortCode,
 		ShortURL:    strings.TrimRight(baseURL, "/") + "/r/" + u.ShortCode,
@@ -181,4 +199,14 @@ func toURLResponse(u *model.ShortURL, baseURL string) *dto.URLResponse {
 		CreatedAt:   u.CreatedAt,
 		LastAccess:  u.LastAccessedAt,
 	}
+	if meta != nil {
+		resp.Metadata = &dto.URLMetadataResponse{
+			Title:       meta.Title,
+			Description: meta.Description,
+			OgImage:     meta.OgImage,
+			FaviconURL:  meta.FaviconURL,
+			FetchStatus: string(meta.FetchStatus),
+		}
+	}
+	return resp
 }

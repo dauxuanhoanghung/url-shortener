@@ -19,13 +19,21 @@ var (
 	pgUniqueViolationCode = "23505"
 )
 
+// ShortURLWithMeta pairs a URL with its (possibly nil) metadata for list responses.
+type ShortURLWithMeta struct {
+	URL      model.ShortURL
+	Metadata *model.URLMetadata
+}
+
 type URLRepository interface {
 	Create(ctx context.Context, url *model.ShortURL) (*model.ShortURL, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, limit int, offset int) ([]model.ShortURL, error)
+	ListByUserWithMeta(ctx context.Context, userID uuid.UUID, limit int, offset int) ([]ShortURLWithMeta, error)
 	CountByUser(ctx context.Context, userID uuid.UUID) (int, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*model.ShortURL, error)
 	GetByShortCode(ctx context.Context, shortCode string) (*model.ShortURL, error)
 	SoftDelete(ctx context.Context, id, userID uuid.UUID) error
+	SoftDeleteByID(ctx context.Context, id uuid.UUID) error
 	IncrementClick(ctx context.Context, shortCode string) error
 }
 
@@ -72,6 +80,60 @@ func (r *urlRepository) ListByUser(ctx context.Context, userID uuid.UUID, limit 
 	return urls, nil
 }
 
+func (r *urlRepository) ListByUserWithMeta(ctx context.Context, userID uuid.UUID, limit int, offset int) ([]ShortURLWithMeta, error) {
+	rows, err := r.q.ListShortURLsWithMetadataByUser(ctx, sqlc.ListShortURLsWithMetadataByUserParams{
+		UserID: userID,
+		Limit:  int32(limit),
+		Offset: int32(offset),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ShortURLWithMeta, 0, len(rows))
+	for _, row := range rows {
+		u := model.ShortURL{
+			ID:          row.ID,
+			UserID:      row.UserID,
+			ShortCode:   row.ShortCode,
+			OriginalURL: row.OriginalUrl,
+			ClickCount:  row.ClickCount.Int64,
+			CreatedAt:   row.CreatedAt.Time,
+		}
+		if row.LastAccessedAt.Valid {
+			t := row.LastAccessedAt.Time
+			u.LastAccessedAt = &t
+		}
+		if row.DeletedAt.Valid {
+			t := row.DeletedAt.Time
+			u.DeletedAt = &t
+		}
+		var meta *model.URLMetadata
+		if row.FetchStatus.Valid {
+			meta = &model.URLMetadata{
+				FetchStatus: model.FetchStatus(row.FetchStatus.String),
+			}
+			if row.Title.Valid {
+				s := row.Title.String
+				meta.Title = &s
+			}
+			if row.Description.Valid {
+				s := row.Description.String
+				meta.Description = &s
+			}
+			if row.OgImage.Valid {
+				s := row.OgImage.String
+				meta.OgImage = &s
+			}
+			if row.FaviconUrl.Valid {
+				s := row.FaviconUrl.String
+				meta.FaviconURL = &s
+			}
+		}
+		out = append(out, ShortURLWithMeta{URL: u, Metadata: meta})
+	}
+	return out, nil
+}
+
 func (r *urlRepository) CountByUser(ctx context.Context, userID uuid.UUID) (int, error) {
 	n, err := r.q.CountShortURLsByUser(ctx, userID)
 	return int(n), err
@@ -108,6 +170,17 @@ func (r *urlRepository) SoftDelete(ctx context.Context, id, userID uuid.UUID) er
 		ID:     id,
 		UserID: userID,
 	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrURLNotFound
+	}
+	return nil
+}
+
+func (r *urlRepository) SoftDeleteByID(ctx context.Context, id uuid.UUID) error {
+	n, err := r.q.SoftDeleteShortURLByID(ctx, id)
 	if err != nil {
 		return err
 	}

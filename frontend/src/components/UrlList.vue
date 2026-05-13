@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useUrlStore } from '@/stores/urlStore'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import type { ShortURL } from '@/types'
 
 const store = useUrlStore()
 const copiedId = ref<string | null>(null)
@@ -25,6 +26,20 @@ async function handleDelete(id: string) {
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
+
+function shortHost(url: string) {
+  try { return new URL(url).hostname } catch { return url }
+}
+
+function faviconSrc(u: ShortURL): string | null {
+  if (u.metadata?.favicon_url) return u.metadata.favicon_url
+  try {
+    const { origin } = new URL(u.original_url)
+    return `${origin}/favicon.ico`
+  } catch {
+    return null
+  }
+}
 </script>
 
 <template>
@@ -35,55 +50,119 @@ function formatDate(iso: string) {
     <p class="mt-1 text-xs text-muted-foreground">Paste a URL above to create your first short link.</p>
   </div>
 
-  <div v-else class="overflow-hidden rounded-lg border border-border">
-    <!-- Table header — hidden on mobile -->
-    <div class="hidden grid-cols-[1.4fr_2fr_80px_110px_150px] gap-4 border-b bg-muted/50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:grid">
-      <div>Short URL</div>
-      <div>Original</div>
-      <div>Clicks</div>
-      <div>Created</div>
-      <div></div>
-    </div>
-
+  <div v-else class="flex flex-col gap-3">
     <div
       v-for="u in store.urls"
       :key="u.id"
-      class="flex flex-col gap-1.5 border-b px-4 py-3 last:border-0 md:grid md:grid-cols-[1.4fr_2fr_80px_110px_150px] md:items-center md:gap-4"
+      class="rounded-lg border border-border bg-card shadow-sm"
     >
-      <div>
-        <a :href="u.short_url" target="_blank" rel="noopener" class="text-sm font-medium text-primary hover:underline">
-          {{ u.short_url }}
-        </a>
+      <!-- Main row -->
+      <div class="flex items-start gap-3 p-4">
+
+        <!-- Favicon -->
+        <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-muted">
+          <img
+            v-if="faviconSrc(u)"
+            :src="faviconSrc(u)!"
+            :alt="shortHost(u.original_url)"
+            class="h-5 w-5 object-contain"
+            @error="($event.target as HTMLImageElement).style.display='none'"
+          />
+          <span v-else class="text-xs text-muted-foreground">🔗</span>
+        </div>
+
+        <!-- URL info -->
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <a
+              :href="u.short_url"
+              target="_blank"
+              rel="noopener"
+              class="text-sm font-semibold text-primary hover:underline"
+            >
+              {{ u.short_url }}
+            </a>
+
+            <!-- Fetch status badge -->
+            <Badge
+              v-if="u.metadata?.fetch_status === 'pending'"
+              variant="secondary"
+              class="text-xs"
+            >
+              Fetching…
+            </Badge>
+            <Badge
+              v-else-if="u.metadata?.fetch_status === 'failed'"
+              class="bg-red-50 text-red-600 border-red-200 text-xs"
+            >
+              Unreachable
+            </Badge>
+          </div>
+
+          <!-- Page title from metadata, or fallback to original URL -->
+          <p
+            v-if="u.metadata?.title"
+            class="mt-0.5 truncate text-sm font-medium text-foreground"
+            :title="u.metadata.title"
+          >
+            {{ u.metadata.title }}
+          </p>
+          <p
+            class="mt-0.5 truncate text-xs text-muted-foreground"
+            :title="u.original_url"
+          >
+            {{ u.original_url }}
+          </p>
+
+          <!-- Description -->
+          <p
+            v-if="u.metadata?.description"
+            class="mt-1 line-clamp-2 text-xs text-muted-foreground"
+          >
+            {{ u.metadata.description }}
+          </p>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex shrink-0 flex-col items-end gap-1.5">
+          <div class="flex gap-1.5">
+            <Button
+              size="sm"
+              :variant="copiedId === u.id ? 'secondary' : 'outline'"
+              class="h-7 px-2.5 text-xs"
+              :class="copiedId === u.id ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : ''"
+              @click="copyLink(u.id, u.short_url)"
+            >
+              {{ copiedId === u.id ? 'Copied!' : 'Copy' }}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              class="h-7 px-2.5 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+              @click="handleDelete(u.id)"
+            >
+              Delete
+            </Button>
+          </div>
+          <div class="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>{{ u.click_count }} click{{ u.click_count !== 1 ? 's' : '' }}</span>
+            <span>·</span>
+            <span>{{ formatDate(u.created_at) }}</span>
+          </div>
+        </div>
       </div>
 
-      <div class="max-w-full truncate text-sm text-muted-foreground" :title="u.original_url">
-        {{ u.original_url }}
-      </div>
-
-      <div>
-        <Badge variant="secondary" class="font-mono text-xs">{{ u.click_count }}</Badge>
-      </div>
-
-      <div class="text-xs text-muted-foreground">{{ formatDate(u.created_at) }}</div>
-
-      <div class="flex gap-2 md:justify-end">
-        <Button
-          size="sm"
-          :variant="copiedId === u.id ? 'secondary' : 'outline'"
-          class="h-7 px-2.5 text-xs"
-          :class="copiedId === u.id ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : ''"
-          @click="copyLink(u.id, u.short_url)"
-        >
-          {{ copiedId === u.id ? 'Copied!' : 'Copy' }}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          class="h-7 px-2.5 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-          @click="handleDelete(u.id)"
-        >
-          Delete
-        </Button>
+      <!-- OG image strip — only shown when available -->
+      <div
+        v-if="u.metadata?.og_image"
+        class="border-t px-4 pb-3 pt-2"
+      >
+        <img
+          :src="u.metadata.og_image"
+          :alt="u.metadata.title || shortHost(u.original_url)"
+          class="h-32 w-full rounded object-cover"
+          @error="($event.target as HTMLImageElement).parentElement!.style.display='none'"
+        />
       </div>
     </div>
   </div>

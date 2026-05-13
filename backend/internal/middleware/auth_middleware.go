@@ -11,8 +11,8 @@ import (
 
 func AuthRequired(jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
+		raw := tokenFromRequest(c)
+		if raw == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, dto.ErrorResponse{
 				Success: false,
 				Error: dto.ErrorDetail{
@@ -23,19 +23,7 @@ func AuthRequired(jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, dto.ErrorResponse{
-				Success: false,
-				Error: dto.ErrorDetail{
-					Code:    "INVALID_TOKEN",
-					Message: "Invalid authorization format",
-				},
-			})
-			return
-		}
-
-		claims, err := utils.ValidateToken(parts[1], jwtSecret)
+		claims, err := utils.ValidateToken(raw, jwtSecret)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, dto.ErrorResponse{
 				Success: false,
@@ -51,4 +39,19 @@ func AuthRequired(jwtSecret string) gin.HandlerFunc {
 		c.Set("email", claims.Email)
 		c.Next()
 	}
+}
+
+// tokenFromRequest extracts the Bearer token from the Authorization header,
+// falling back to the ?token= query param for SSE connections where browsers
+// cannot set custom headers.
+func tokenFromRequest(c *gin.Context) string {
+	header := c.GetHeader("Authorization")
+	if header != "" {
+		parts := strings.SplitN(header, " ", 2)
+		if len(parts) == 2 && parts[0] == "Bearer" {
+			return parts[1]
+		}
+		return ""
+	}
+	return c.Query("token")
 }

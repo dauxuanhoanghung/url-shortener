@@ -12,6 +12,7 @@ type Handlers struct {
 	URL      *handler.URLHandler
 	Redirect *handler.RedirectHandler
 	Plan     *handler.PlanHandler
+	SSE      *handler.SSEHandler
 }
 
 func Setup(mode string, jwtSecret string, userRepo repository.UserRepository, h Handlers) *gin.Engine {
@@ -43,6 +44,7 @@ func Setup(mode string, jwtSecret string, userRepo repository.UserRepository, h 
 		authed.Use(middleware.AuthRequired(jwtSecret))
 		{
 			authed.POST("/auth/resend-verification", h.Auth.ResendVerification)
+			authed.GET("/events", h.SSE.Stream)
 
 			urls := authed.Group("/urls")
 			{

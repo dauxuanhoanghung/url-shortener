@@ -21,6 +21,14 @@ export interface ApiResponse<T> {
   }
 }
 
+export interface URLMetadata {
+  title?: string | null
+  description?: string | null
+  og_image?: string | null
+  favicon_url?: string | null
+  fetch_status: 'pending' | 'ok' | 'failed'
+}
+
 export interface ShortURL {
   id: string
   short_code: string
@@ -29,6 +37,14 @@ export interface ShortURL {
   click_count: number
   created_at: string
   last_accessed_at?: string | null
+  metadata: URLMetadata | null
+}
+
+export interface SSEUrlDeletedEvent {
+  url_id: string
+  short_code: string
+  reason: string
+  http_status: number
 }
 
 export interface ListURLResponse {

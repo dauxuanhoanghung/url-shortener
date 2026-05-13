@@ -29,6 +29,7 @@ Subscription plans gate feature entitlements and URL quotas.
 - Admin HTTP API (`/admin/*` — Batch 2)
 - Rate-limit middleware
 - Service + handler tests (layer 4 & 5 per `docs/19-testing-strategy.md`)
+- URL metadata fetch + dead-link detection (background worker + SSE notify) — see [27-url-metadata-fetch.md](27-url-metadata-fetch.md)
 - Custom domains, QR codes, team workspaces, API keys, webhooks (future tiers)
 
 ---

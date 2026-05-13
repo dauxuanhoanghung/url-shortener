@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useAuthStore } from '@/stores/authStore'
 import { useUrlStore } from '@/stores/urlStore'
 import { authService } from '@/services/authService'
@@ -38,7 +38,15 @@ async function handleResend() {
   }
 }
 
-onMounted(() => store.fetchAll())
+onMounted(() => {
+  store.fetchAll()
+  const token = localStorage.getItem('access_token')
+  if (token) store.startSSE(token)
+})
+
+onUnmounted(() => {
+  store.stopSSE()
+})
 </script>
 
 <template>
@@ -83,6 +91,29 @@ onMounted(() => store.fetchAll())
       </AlertDescription>
       <p v-if="resendStatus === 'error'" class="mt-1 text-xs text-destructive">{{ resendMessage }}</p>
     </Alert>
+
+    <!-- Dead-link notifications (pushed via SSE) -->
+    <div v-if="store.deletedNotifications.length" class="mb-4 flex flex-col gap-2">
+      <Alert
+        v-for="n in store.deletedNotifications"
+        :key="n.id"
+        class="border-red-200 bg-red-50 text-red-900"
+      >
+        <AlertDescription class="flex items-center justify-between gap-4">
+          <span class="text-sm">
+            <strong>Link removed:</strong> {{ n.message }}
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            class="h-6 shrink-0 px-2 text-xs text-red-700 hover:bg-red-100"
+            @click="store.dismissNotification(n.id)"
+          >
+            Dismiss
+          </Button>
+        </AlertDescription>
+      </Alert>
+    </div>
 
     <!-- URL form -->
     <UrlForm />

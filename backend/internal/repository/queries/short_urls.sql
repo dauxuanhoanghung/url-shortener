@@ -32,3 +32,8 @@ WHERE short_code = $1 AND deleted_at IS NULL;
 UPDATE short_urls
 SET deleted_at = NOW()
 WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL;
+
+-- name: SoftDeleteShortURLByID :execrows
+UPDATE short_urls
+SET deleted_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL;

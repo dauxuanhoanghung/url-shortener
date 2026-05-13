@@ -20,6 +20,8 @@ import (
 	"github.com/dauxuanhoanghung/url-shortener/internal/repository"
 	"github.com/dauxuanhoanghung/url-shortener/internal/router"
 	"github.com/dauxuanhoanghung/url-shortener/internal/service"
+	"github.com/dauxuanhoanghung/url-shortener/internal/sse"
+	"github.com/dauxuanhoanghung/url-shortener/internal/worker"
 	"github.com/dauxuanhoanghung/url-shortener/pkg/logger"
 )
 
@@ -66,11 +68,25 @@ func main() {
 	userRepo     := repository.NewUserRepository(pgPool)
 	userPlanRepo := repository.NewUserPlanRepository(pgPool)
 	urlRepo      := repository.NewURLRepository(pgPool)
+	metaRepo     := repository.NewURLMetadataRepository(pgPool)
 	tokenRepo    := repository.NewTokenRepository(pgPool)
 	planRepo     := repository.NewPlanRepository(pgPool)
 
+	sseHub := sse.NewHub()
+
+	metaWorker := worker.NewMetadataWorker(worker.MetadataWorkerConfig{
+		MetaRepo: metaRepo,
+		URLRepo:  urlRepo,
+		Cache:    appCache,
+		Notifier: sseHub,
+		Logger:   log,
+		Workers:  4,
+	})
+	metaWorker.Start(ctx)
+	defer metaWorker.Stop()
+
 	authService     := service.NewAuthService(userRepo, userPlanRepo, tokenRepo, appMailer, cfg.JWT.Secret, cfg.Server.FrontendBaseURL)
-	urlService      := service.NewURLService(urlRepo, userPlanRepo, planRepo)
+	urlService      := service.NewURLService(urlRepo, metaRepo, userPlanRepo, planRepo, metaWorker)
 	planService     := service.NewPlanService(planRepo)
 	redirectService := service.NewRedirectService(urlRepo, appCache)
 
@@ -78,12 +94,14 @@ func main() {
 	urlHandler      := handler.NewURLHandler(urlService, cfg.Server.BaseURL)
 	planHandler     := handler.NewPlanHandler(planService)
 	redirectHandler := handler.NewRedirectHandler(redirectService)
+	sseHandler      := handler.NewSSEHandler(sseHub)
 
 	r := router.Setup(cfg.Server.Mode, cfg.JWT.Secret, userRepo, router.Handlers{
 		Auth:     authHandler,
 		URL:      urlHandler,
 		Plan:     planHandler,
 		Redirect: redirectHandler,
+		SSE:      sseHandler,
 	})
 
 	srv := &http.Server{
