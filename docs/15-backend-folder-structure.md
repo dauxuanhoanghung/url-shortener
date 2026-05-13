@@ -52,22 +52,32 @@ backend/
 │   ├── repository/
 │   │   ├── queries/                   # sqlc source-of-truth SQL
 │   │   │   ├── users.sql
+│   │   │   ├── user_plans.sql
 │   │   │   ├── short_urls.sql
-│   │   │   └── plans.sql
+│   │   │   ├── plans.sql
+│   │   │   ├── tokens.sql
+│   │   │   └── admin_audit.sql
 │   │   ├── sqlc/                      # GENERATED — do not edit
 │   │   │   ├── db.go
 │   │   │   ├── models.go
 │   │   │   ├── querier.go
 │   │   │   ├── users.sql.go
+│   │   │   ├── user_plans.sql.go
 │   │   │   ├── short_urls.sql.go
-│   │   │   └── plans.sql.go
+│   │   │   ├── plans.sql.go
+│   │   │   ├── tokens.sql.go
+│   │   │   └── admin_audit.sql.go
 │   │   ├── user_repository.go         # adapter over sqlc.Queries
+│   │   ├── user_plan_repository.go    # Create, GetByUserID, Update
 │   │   ├── url_repository.go          # adapter over sqlc.Queries
-│   │   └── plan_repository.go         # read-only: GetByCode, List
+│   │   ├── plan_repository.go         # read-only: GetByCode, List
+│   │   ├── token_repository.go
+│   │   └── admin_audit_repository.go
 │   │   # subscription_repository.go   (planned)
 │   │
 │   ├── model/
 │   │   ├── user.go
+│   │   ├── user_plan.go               # plan membership row (from user_plans table)
 │   │   ├── short_url.go
 │   │   └── plan.go
 │   │   # subscription.go              (planned)

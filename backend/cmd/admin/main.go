@@ -90,8 +90,9 @@ func cmdCreateAdmin(args []string) error {
 	}
 	defer pool.Close()
 
-	userRepo := repository.NewUserRepository(pool)
-	auditRepo := repository.NewAdminAuditRepository(pool)
+	userRepo     := repository.NewUserRepository(pool)
+	userPlanRepo := repository.NewUserPlanRepository(pool)
+	auditRepo    := repository.NewAdminAuditRepository(pool)
 
 	if existing, _ := userRepo.GetByEmail(ctx, *email); existing != nil {
 		return fmt.Errorf("an account with email %s already exists", *email)
@@ -103,15 +104,13 @@ func cmdCreateAdmin(args []string) error {
 	}
 
 	now := time.Now()
-	// Admin accounts are born verified — there's no signup email, the
-	// operator creating the account is the ground truth of ownership.
+	// Admin accounts are born verified — operator creating the account
+	// is the ground truth of ownership, no signup email needed.
 	verified := now
 	admin, err := userRepo.Create(ctx, &model.User{
 		ID:              uuid.New(),
 		Email:           *email,
 		PasswordHash:    string(hashed),
-		PlanType:        "free",
-		PlanCode:        "free",
 		Role:            model.RoleAdmin,
 		EmailVerifiedAt: &verified,
 		CreatedAt:       now,
@@ -119,6 +118,12 @@ func cmdCreateAdmin(args []string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("inserting admin: %w", err)
+	}
+
+	// Admin accounts also get a user_plans row (free tier) so any code
+	// that reads user_plans unconditionally won't error.
+	if _, err := userPlanRepo.Create(ctx, admin.ID, "free"); err != nil {
+		return fmt.Errorf("creating user_plans for admin: %w", err)
 	}
 
 	after, _ := json.Marshal(map[string]string{"email": admin.Email, "role": admin.Role})

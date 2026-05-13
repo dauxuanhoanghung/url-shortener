@@ -1,7 +1,12 @@
 version: "2"
 sql:
   - engine: postgresql
-    schema: migrations
+    schema:
+      - migrations/0001_initial_schema.sql
+      - migrations/0002_add_plans_table.sql
+      - migrations/0003_add_user_lifecycle.sql
+      - migrations/0004_add_admin_accounts.sql
+      - migrations/0005_extract_user_plans.sql
     queries: internal/repository/queries
     gen:
       go:
@@ -25,9 +30,7 @@ sql:
               type: "UUID"
               pointer: true
           # short_urls.user_id is nullable in schema today but is never NULL in
-          # practice (URLs always have an owner). Treat it as non-nullable at
-          # the Go boundary so repositories don't need to deref pointers.
-          # A later migration will add NOT NULL and this override can be dropped.
+          # practice. Override to non-pointer so adapters don't need to deref.
           - column: "short_urls.user_id"
             go_type:
               import: "github.com/google/uuid"

@@ -63,7 +63,7 @@ func Load() (*Config, error) {
 			Port:            getEnv("SERVER_PORT", "8080"),
 			Mode:            getEnv("GIN_MODE", "debug"),
 			BaseURL:         getEnv("BASE_URL", "http://localhost:8080"),
-			FrontendBaseURL: getEnv("FRONTEND_BASE_URL", "http://localhost:5173"),
+			FrontendBaseURL: getEnv("FRONTEND_BASE_URL", "http://localhost:3000"),
 		},
 		Postgres: PostgresConfig{
 			Host:     getEnv("POSTGRES_HOST", "localhost"),

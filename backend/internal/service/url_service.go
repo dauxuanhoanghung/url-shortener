@@ -26,28 +26,46 @@ const (
 	shortCodeLength  = 6
 	shortCodeRetries = 5
 	defaultListLimit = 50
-	freePlanLimit    = 100
-	proPlanLimit     = 10000
 )
 
 var blockedSchemes = []string{"javascript:", "data:", "file:"}
 
 type URLService interface {
-	Create(ctx context.Context, userID uuid.UUID, planType string, req dto.CreateURLRequest, baseURL string) (*dto.URLResponse, error)
+	Create(ctx context.Context, userID uuid.UUID, req dto.CreateURLRequest, baseURL string) (*dto.URLResponse, error)
 	List(ctx context.Context, userID uuid.UUID, limit, offset int, baseURL string) (*dto.ListURLResponse, error)
 	Delete(ctx context.Context, id, userID uuid.UUID) error
 }
 
 type urlService struct {
-	repo repository.URLRepository
+	repo         repository.URLRepository
+	userPlanRepo repository.UserPlanRepository
+	planRepo     repository.PlanRepository
 }
 
-func NewURLService(repo repository.URLRepository) URLService {
-	return &urlService{repo: repo}
+func NewURLService(
+	repo repository.URLRepository,
+	userPlanRepo repository.UserPlanRepository,
+	planRepo repository.PlanRepository,
+) URLService {
+	return &urlService{
+		repo:         repo,
+		userPlanRepo: userPlanRepo,
+		planRepo:     planRepo,
+	}
 }
 
-func (s *urlService) Create(ctx context.Context, userID uuid.UUID, planType string, req dto.CreateURLRequest, baseURL string) (*dto.URLResponse, error) {
+func (s *urlService) Create(ctx context.Context, userID uuid.UUID, req dto.CreateURLRequest, baseURL string) (*dto.URLResponse, error) {
 	if err := validateURL(req.OriginalURL); err != nil {
+		return nil, err
+	}
+
+	// Fetch the user's plan to get the authoritative URL limit.
+	userPlan, err := s.userPlanRepo.GetByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	plan, err := s.planRepo.GetByCode(ctx, userPlan.PlanCode)
+	if err != nil {
 		return nil, err
 	}
 
@@ -55,7 +73,7 @@ func (s *urlService) Create(ctx context.Context, userID uuid.UUID, planType stri
 	if err != nil {
 		return nil, err
 	}
-	if count >= planLimit(planType) {
+	if count >= int(plan.MaxURLs) {
 		return nil, ErrPlanLimitReached
 	}
 
@@ -151,13 +169,6 @@ func validateURL(raw string) error {
 		return ErrInvalidURL
 	}
 	return nil
-}
-
-func planLimit(planType string) int {
-	if planType == "pro" {
-		return proPlanLimit
-	}
-	return freePlanLimit
 }
 
 func toURLResponse(u *model.ShortURL, baseURL string) *dto.URLResponse {

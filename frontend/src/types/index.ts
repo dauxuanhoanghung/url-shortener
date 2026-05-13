@@ -1,7 +1,7 @@
 export interface User {
   id: string
   email: string
-  plan_type: string
+  plan_code: string
   email_verified: boolean
   role: 'user' | 'admin'
 }
@@ -34,4 +34,16 @@ export interface ShortURL {
 export interface ListURLResponse {
   urls: ShortURL[]
   total: number
+}
+
+export interface Plan {
+  code: string
+  name: string
+  price_cents: number
+  max_urls: number
+  max_domains: number
+  max_team_members: number
+  analytics_retention_days: number
+  api_rate_limit_per_min: number | null
+  features: Record<string, boolean>
 }

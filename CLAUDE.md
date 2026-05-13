@@ -141,19 +141,30 @@ snake_case everywhere — tables, columns, indexes.
 Files in `backend/migrations/`, numbered `0001_...`, `0002_...`.
 **Never modify an applied migration.** Always add a new file.
 
+Apply: `make migrate` — runs `psql` via `docker exec` into `urlshortener-postgres`.
+Status: `make migrate-status`.
+Full guide: [20-local-development.md §3](docs/20-local-development.md).
+
 Current migrations:
 
-| File                          | Adds                                                 |
-| ----------------------------- | ---------------------------------------------------- |
-| `0001_initial_schema.sql`     | users, subscriptions, short_urls                     |
-| `0002_add_plans_table.sql`    | plans + seed (Free/Pro/Business), users.plan_code FK |
-| `0003_add_user_lifecycle.sql` | users.email_verified_at, tokens table                |
-| `0004_add_admin_accounts.sql` | users.role + CHECK, users.disabled_at, admin_audit   |
+| File                          | Adds                                                          |
+| ----------------------------- | ------------------------------------------------------------- |
+| `0001_initial_schema.sql`     | users (no plan cols), subscriptions, short_urls               |
+| `0002_add_plans_table.sql`    | plans + seed (Free/Pro/Business), users.plan_code (removed later) |
+| `0003_add_user_lifecycle.sql` | users.email_verified_at, tokens table                         |
+| `0004_add_admin_accounts.sql` | users.role + CHECK, users.disabled_at, admin_audit            |
+| `0005_extract_user_plans.sql` | user_plans table; drops users.plan_code + plan_type           |
 
 ## Transactions
 
 Use for: billing updates, subscription changes, any multi-table write.
 sqlc provides `WithTx(tx pgx.Tx)` on `*Queries`. Service layer owns the transaction boundary.
+
+## user_plans table
+
+One row per user. Created on register (free tier). Updated on plan upgrade/downgrade.
+`URLService` reads `user_plans` → `plans` to enforce the URL limit.
+`AuthService` reads `user_plans` to populate `plan_code` in the JWT response.
 
 ## plans table
 
@@ -278,6 +289,9 @@ Coverage floor: `pkg/` 95%, `service/` 80%, `handler/` 70%.
 Run:
 
 ```bash
+make migrate                  # apply all pending migrations (idempotent)
+make migrate FILE=000N_x.sql  # apply a single migration file
+make migrate-status           # show applied vs pending
 make test-pkg     # fastest — pkg/ only
 make test         # full suite
 make test-cover   # with per-package coverage

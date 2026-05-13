@@ -19,7 +19,7 @@ type AuthResponse struct {
 type UserResponse struct {
 	ID            string `json:"id"`
 	Email         string `json:"email"`
-	PlanType      string `json:"plan_type"`
+	PlanCode      string `json:"plan_code"`
 	EmailVerified bool   `json:"email_verified"`
 	Role          string `json:"role"`
 }

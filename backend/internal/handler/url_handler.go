@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/dauxuanhoanghung/url-shortener/internal/dto"
-	"github.com/dauxuanhoanghung/url-shortener/internal/repository"
 	"github.com/dauxuanhoanghung/url-shortener/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -14,16 +13,11 @@ import (
 
 type URLHandler struct {
 	urlService service.URLService
-	userRepo   repository.UserRepository
 	baseURL    string
 }
 
-func NewURLHandler(urlService service.URLService, userRepo repository.UserRepository, baseURL string) *URLHandler {
-	return &URLHandler{
-		urlService: urlService,
-		userRepo:   userRepo,
-		baseURL:    baseURL,
-	}
+func NewURLHandler(urlService service.URLService, baseURL string) *URLHandler {
+	return &URLHandler{urlService: urlService, baseURL: baseURL}
 }
 
 func (h *URLHandler) Create(c *gin.Context) {
@@ -38,13 +32,7 @@ func (h *URLHandler) Create(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userRepo.GetByID(c.Request.Context(), userID)
-	if err != nil {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "User not found")
-		return
-	}
-
-	resp, err := h.urlService.Create(c.Request.Context(), userID, user.PlanType, req, h.baseURL)
+	resp, err := h.urlService.Create(c.Request.Context(), userID, req, h.baseURL)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidURL):

@@ -30,6 +30,7 @@ var (
 const (
 	verifyEmailTokenTTL   = 24 * time.Hour
 	passwordResetTokenTTL = 30 * time.Minute
+	defaultPlanCode       = "free"
 )
 
 type AuthService interface {
@@ -43,6 +44,7 @@ type AuthService interface {
 
 type authService struct {
 	userRepo        repository.UserRepository
+	userPlanRepo    repository.UserPlanRepository
 	tokenRepo       repository.TokenRepository
 	mailer          mailer.Mailer
 	jwtSecret       string
@@ -51,12 +53,14 @@ type authService struct {
 
 func NewAuthService(
 	userRepo repository.UserRepository,
+	userPlanRepo repository.UserPlanRepository,
 	tokenRepo repository.TokenRepository,
 	m mailer.Mailer,
 	jwtSecret, frontendBaseURL string,
 ) AuthService {
 	return &authService{
 		userRepo:        userRepo,
+		userPlanRepo:    userPlanRepo,
 		tokenRepo:       tokenRepo,
 		mailer:          m,
 		jwtSecret:       jwtSecret,
@@ -80,8 +84,6 @@ func (s *authService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 		ID:           uuid.New(),
 		Email:        req.Email,
 		PasswordHash: string(hashedPassword),
-		PlanType:     "free",
-		PlanCode:     "free",
 		Role:         model.RoleUser,
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -90,16 +92,19 @@ func (s *authService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 		return nil, err
 	}
 
-	// Issue a verification token + send email. Soft-gated: user is returned
-	// a JWT regardless of whether the email goes out successfully — the token
-	// row is the authoritative record. On provider failure we log and move on.
+	// Create the user_plans row — every user starts on free.
+	userPlan, err := s.userPlanRepo.Create(ctx, user.ID, defaultPlanCode)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := s.issueVerificationEmail(ctx, user); err != nil {
-		// Don't fail registration on email delivery problems; the user
-		// can hit /auth/resend-verification once they log in.
+		// Don't fail registration on mail delivery problems; user can
+		// hit /auth/resend-verification once they log in.
 		_ = err
 	}
 
-	return s.generateAuthResponse(user)
+	return s.generateAuthResponse(user, userPlan)
 }
 
 func (s *authService) Login(ctx context.Context, req dto.LoginRequest) (*dto.AuthResponse, error) {
@@ -113,7 +118,13 @@ func (s *authService) Login(ctx context.Context, req dto.LoginRequest) (*dto.Aut
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		return nil, ErrInvalidCredentials
 	}
-	return s.generateAuthResponse(user)
+
+	userPlan, err := s.userPlanRepo.GetByUserID(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.generateAuthResponse(user, userPlan)
 }
 
 func (s *authService) VerifyEmail(ctx context.Context, rawToken string) error {
@@ -139,8 +150,7 @@ func (s *authService) ResendVerification(ctx context.Context, userID uuid.UUID) 
 }
 
 func (s *authService) ForgotPassword(ctx context.Context, email string) error {
-	// Uniform response: caller must treat this as success regardless of
-	// whether the user exists. We still do the work when the user exists.
+	// Uniform response regardless of whether the user exists (anti-enumeration).
 	user, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		return nil
@@ -160,19 +170,16 @@ func (s *authService) ResetPassword(ctx context.Context, rawToken, newPassword s
 	if err := s.userRepo.UpdatePassword(ctx, tok.UserID, string(hash)); err != nil {
 		return err
 	}
-	// Refresh-token revocation on password change: deferred to Batch 2 when
-	// server-side refresh storage lands. For now, access tokens expire in
-	// 15 minutes so the window is naturally bounded.
 	return s.tokenRepo.MarkUsed(ctx, tok.ID)
 }
 
-// --- internal helpers --------------------------------------------------
+// --- internal helpers ---------------------------------------------------
 
 func (s *authService) issueVerificationEmail(ctx context.Context, user *model.User) error {
 	return s.issueTokenAndSend(ctx, user, model.TokenPurposeVerifyEmail, verifyEmailTokenTTL,
 		"Verify your email",
 		func(link string) string {
-			return fmt.Sprintf("Welcome! Please verify your email by clicking this link (valid 24h):\n\n%s", link)
+			return fmt.Sprintf("Welcome! Please verify your email (valid 24h):\n\n%s", link)
 		},
 		s.frontendBaseURL+"/verify-email?token=",
 	)
@@ -182,7 +189,7 @@ func (s *authService) issuePasswordResetEmail(ctx context.Context, user *model.U
 	return s.issueTokenAndSend(ctx, user, model.TokenPurposePasswordReset, passwordResetTokenTTL,
 		"Reset your password",
 		func(link string) string {
-			return fmt.Sprintf("Reset your password by clicking this link (valid 30 min):\n\n%s\n\nIf you did not request this, ignore this email.", link)
+			return fmt.Sprintf("Reset your password (valid 30 min):\n\n%s\n\nIf you did not request this, ignore this email.", link)
 		},
 		s.frontendBaseURL+"/reset-password?token=",
 	)
@@ -197,8 +204,6 @@ func (s *authService) issueTokenAndSend(
 	bodyFn func(link string) string,
 	linkPrefix string,
 ) error {
-	// Invalidate any previous unused token for this purpose — one live link
-	// at a time keeps the "single-use" invariant unambiguous.
 	if err := s.tokenRepo.InvalidateByPurpose(ctx, user.ID, purpose); err != nil {
 		return err
 	}
@@ -206,17 +211,15 @@ func (s *authService) issueTokenAndSend(
 	if err != nil {
 		return err
 	}
-	hash := hashToken(raw)
 	now := time.Now()
-	err = s.tokenRepo.Create(ctx, &model.Token{
+	if err := s.tokenRepo.Create(ctx, &model.Token{
 		ID:        uuid.New(),
 		UserID:    user.ID,
 		Purpose:   purpose,
-		TokenHash: hash,
+		TokenHash: hashToken(raw),
 		ExpiresAt: now.Add(ttl),
 		CreatedAt: now,
-	})
-	if err != nil {
+	}); err != nil {
 		return err
 	}
 	return s.mailer.Send(ctx, mailer.Message{
@@ -231,20 +234,16 @@ func (s *authService) lookupToken(ctx context.Context, rawToken, purpose string)
 	if errors.Is(err, repository.ErrTokenNotFound) {
 		return nil, ErrTokenInvalid
 	}
-	if err != nil {
-		return nil, err
-	}
-	return tok, nil
+	return tok, err
 }
 
-func (s *authService) generateAuthResponse(user *model.User) (*dto.AuthResponse, error) {
+func (s *authService) generateAuthResponse(user *model.User, userPlan *model.UserPlan) (*dto.AuthResponse, error) {
 	userID := user.ID.String()
 
 	accessToken, err := utils.GenerateAccessToken(userID, user.Email, s.jwtSecret)
 	if err != nil {
 		return nil, err
 	}
-
 	refreshToken, err := utils.GenerateRefreshToken(userID, user.Email, s.jwtSecret)
 	if err != nil {
 		return nil, err
@@ -254,11 +253,11 @@ func (s *authService) generateAuthResponse(user *model.User) (*dto.AuthResponse,
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		User: dto.UserResponse{
-			ID:              userID,
-			Email:           user.Email,
-			PlanType:        user.PlanType,
-			EmailVerified:   user.IsEmailVerified(),
-			Role:            user.Role,
+			ID:            userID,
+			Email:         user.Email,
+			PlanCode:      userPlan.PlanCode,
+			EmailVerified: user.IsEmailVerified(),
+			Role:          user.Role,
 		},
 	}, nil
 }

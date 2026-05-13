@@ -11,6 +11,7 @@ type Handlers struct {
 	Auth     *handler.AuthHandler
 	URL      *handler.URLHandler
 	Redirect *handler.RedirectHandler
+	Plan     *handler.PlanHandler
 }
 
 func Setup(mode string, jwtSecret string, userRepo repository.UserRepository, h Handlers) *gin.Engine {
@@ -26,6 +27,9 @@ func Setup(mode string, jwtSecret string, userRepo repository.UserRepository, h 
 
 	api := r.Group("/api/v1")
 	{
+		// Public — no auth required
+		api.GET("/plans", h.Plan.List)
+
 		auth := api.Group("/auth")
 		{
 			auth.POST("/register", h.Auth.Register)

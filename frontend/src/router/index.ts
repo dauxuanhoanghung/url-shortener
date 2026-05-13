@@ -22,6 +22,11 @@ const router = createRouter({
       meta: { guest: true },
     },
     {
+      path: '/pricing',
+      name: 'pricing',
+      component: () => import('../views/PricingView.vue'),
+    },
+    {
       path: '/forgot-password',
       name: 'forgot-password',
       component: () => import('../views/ForgotPasswordView.vue'),

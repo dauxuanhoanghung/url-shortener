@@ -63,21 +63,26 @@ func main() {
 	// Dev-only console mailer. Swap to a real provider in prod. See docs/24-user-account-lifecycle.md §5.
 	appMailer := mailer.NewConsoleMailer(log)
 
-	userRepo := repository.NewUserRepository(pgPool)
-	urlRepo := repository.NewURLRepository(pgPool)
-	tokenRepo := repository.NewTokenRepository(pgPool)
+	userRepo     := repository.NewUserRepository(pgPool)
+	userPlanRepo := repository.NewUserPlanRepository(pgPool)
+	urlRepo      := repository.NewURLRepository(pgPool)
+	tokenRepo    := repository.NewTokenRepository(pgPool)
+	planRepo     := repository.NewPlanRepository(pgPool)
 
-	authService := service.NewAuthService(userRepo, tokenRepo, appMailer, cfg.JWT.Secret, cfg.Server.FrontendBaseURL)
-	urlService := service.NewURLService(urlRepo)
+	authService     := service.NewAuthService(userRepo, userPlanRepo, tokenRepo, appMailer, cfg.JWT.Secret, cfg.Server.FrontendBaseURL)
+	urlService      := service.NewURLService(urlRepo, userPlanRepo, planRepo)
+	planService     := service.NewPlanService(planRepo)
 	redirectService := service.NewRedirectService(urlRepo, appCache)
 
-	authHandler := handler.NewAuthHandler(authService)
-	urlHandler := handler.NewURLHandler(urlService, userRepo, cfg.Server.BaseURL)
+	authHandler     := handler.NewAuthHandler(authService)
+	urlHandler      := handler.NewURLHandler(urlService, cfg.Server.BaseURL)
+	planHandler     := handler.NewPlanHandler(planService)
 	redirectHandler := handler.NewRedirectHandler(redirectService)
 
 	r := router.Setup(cfg.Server.Mode, cfg.JWT.Secret, userRepo, router.Handlers{
 		Auth:     authHandler,
 		URL:      urlHandler,
+		Plan:     planHandler,
 		Redirect: redirectHandler,
 	})
 

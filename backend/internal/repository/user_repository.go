@@ -36,8 +36,6 @@ func (r *userRepository) Create(ctx context.Context, user *model.User) (*model.U
 		ID:              user.ID,
 		Email:           user.Email,
 		PasswordHash:    user.PasswordHash,
-		PlanType:        user.PlanType,
-		PlanCode:        user.PlanCode,
 		Role:            user.Role,
 		CreatedAt:       pgtype.Timestamp{Time: user.CreatedAt, Valid: true},
 		UpdatedAt:       pgtype.Timestamp{Time: user.UpdatedAt, Valid: true},
@@ -46,7 +44,16 @@ func (r *userRepository) Create(ctx context.Context, user *model.User) (*model.U
 	if err != nil {
 		return nil, err
 	}
-	return userFromCreateRow(row), nil
+	return &model.User{
+		ID:              row.ID,
+		Email:           row.Email,
+		PasswordHash:    row.PasswordHash,
+		Role:            row.Role,
+		EmailVerifiedAt: timeFromPg(row.EmailVerifiedAt),
+		DisabledAt:      timeFromPg(row.DisabledAt),
+		CreatedAt:       row.CreatedAt.Time,
+		UpdatedAt:       row.UpdatedAt.Time,
+	}, nil
 }
 
 func (r *userRepository) GetByEmail(ctx context.Context, email string) (*model.User, error) {
@@ -61,8 +68,6 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*model.U
 		ID:              row.ID,
 		Email:           row.Email,
 		PasswordHash:    row.PasswordHash,
-		PlanType:        row.PlanType,
-		PlanCode:        row.PlanCode,
 		Role:            row.Role,
 		EmailVerifiedAt: timeFromPg(row.EmailVerifiedAt),
 		DisabledAt:      timeFromPg(row.DisabledAt),
@@ -83,8 +88,6 @@ func (r *userRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.User
 		ID:              row.ID,
 		Email:           row.Email,
 		PasswordHash:    row.PasswordHash,
-		PlanType:        row.PlanType,
-		PlanCode:        row.PlanCode,
 		Role:            row.Role,
 		EmailVerifiedAt: timeFromPg(row.EmailVerifiedAt),
 		DisabledAt:      timeFromPg(row.DisabledAt),
@@ -104,24 +107,6 @@ func (r *userRepository) UpdatePassword(ctx context.Context, id uuid.UUID, passw
 	})
 }
 
-func userFromCreateRow(row sqlc.CreateUserRow) *model.User {
-	return &model.User{
-		ID:              row.ID,
-		Email:           row.Email,
-		PasswordHash:    row.PasswordHash,
-		PlanType:        row.PlanType,
-		PlanCode:        row.PlanCode,
-		Role:            row.Role,
-		EmailVerifiedAt: timeFromPg(row.EmailVerifiedAt),
-		DisabledAt:      timeFromPg(row.DisabledAt),
-		CreatedAt:       row.CreatedAt.Time,
-		UpdatedAt:       row.UpdatedAt.Time,
-	}
-}
-
-// nullableTime / timeFromPg: bridge between optional time.Time pointers in
-// the domain model and pgtype.Timestamp used by sqlc. Centralized here so
-// adapters don't repeat the conditional wiring.
 func nullableTime(t *time.Time) pgtype.Timestamp {
 	if t == nil {
 		return pgtype.Timestamp{Valid: false}
