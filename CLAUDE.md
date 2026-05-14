@@ -39,6 +39,7 @@ Planned / in progress:
 | Auth        | `golang-jwt/jwt/v5`, bcrypt (`golang.org/x/crypto`)    |
 | Logging     | `go.uber.org/zap`                                      |
 | Config      | `godotenv` + env vars                                  |
+| Mailer      | `gopkg.in/mail.v2` (gomail) — SMTP/sendmail/console    |
 | Frontend    | Vue 3.5 + Vite 8 + Pinia 3 + Vue Router 4 + TypeScript |
 | HTTP client | Axios                                                  |
 | Payment     | Stripe (planned)                                       |
@@ -62,7 +63,7 @@ Handler → Service → Repository
 
 **Cache** (`internal/cache/`): driver-agnostic `Cache` interface. Services depend on this, never on `*redis.Client`. Redis primary + in-memory `Chain` fallback. Do not use the fallback for rate limiting or distributed locks.
 
-**Mailer** (`internal/mailer/`): `Mailer` interface; `ConsoleMailer` in dev (logs to stdout). Services call this, never a provider directly.
+**Mailer** (`internal/mailer/`): `Mailer` interface with three transports: `smtp` (gomail + STARTTLS), `sendmail` (pipes to local MTA), `console` (stdout, dev default). Selected by `MAIL_TRANSPORT` env var. Each real transport implements `Probe()` — if the probe fails at startup, the factory falls back to console automatically. Services and event handlers call the interface, never a concrete transport. See `docs/29-mailer-transports.md`.
 
 ---
 
@@ -359,6 +360,7 @@ For frontend also read:
 | `github.com/google/uuid`         | UUID generation                            |
 | `go.uber.org/zap`                | structured logging                         |
 | `github.com/joho/godotenv`       | `.env` loading                             |
+| `gopkg.in/mail.v2`               | SMTP mailer (gomail) — STARTTLS, multipart |
 | stripe-go                        | Stripe billing (planned)                   |
 
 **Not in use and not wanted:** GORM, ent, bun, testify, gomock, mockery.

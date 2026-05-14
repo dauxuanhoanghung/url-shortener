@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/dauxuanhoanghung/url-shortener/internal/dto"
+	"github.com/dauxuanhoanghung/url-shortener/internal/event"
 	"github.com/dauxuanhoanghung/url-shortener/internal/model"
 	"github.com/dauxuanhoanghung/url-shortener/internal/repository"
-	"github.com/dauxuanhoanghung/url-shortener/internal/worker"
 	"github.com/dauxuanhoanghung/url-shortener/pkg/utils"
 	"github.com/google/uuid"
 )
@@ -42,7 +42,7 @@ type urlService struct {
 	metaRepo     repository.URLMetadataRepository
 	userPlanRepo repository.UserPlanRepository
 	planRepo     repository.PlanRepository
-	worker       worker.MetadataWorker
+	bus          event.EventBus
 }
 
 func NewURLService(
@@ -50,14 +50,14 @@ func NewURLService(
 	metaRepo repository.URLMetadataRepository,
 	userPlanRepo repository.UserPlanRepository,
 	planRepo repository.PlanRepository,
-	w worker.MetadataWorker,
+	bus event.EventBus,
 ) URLService {
 	return &urlService{
 		repo:         repo,
 		metaRepo:     metaRepo,
 		userPlanRepo: userPlanRepo,
 		planRepo:     planRepo,
-		worker:       w,
+		bus:          bus,
 	}
 }
 
@@ -66,7 +66,6 @@ func (s *urlService) Create(ctx context.Context, userID uuid.UUID, req dto.Creat
 		return nil, err
 	}
 
-	// Fetch the user's plan to get the authoritative URL limit.
 	userPlan, err := s.userPlanRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -110,14 +109,14 @@ func (s *urlService) Create(ctx context.Context, userID uuid.UUID, req dto.Creat
 		return nil, ErrShortCodeRetry
 	}
 
+	// Metadata creation is best-effort; a failure skips the fetch job but
+	// does not fail the URL creation itself.
 	meta, err := s.metaRepo.Create(ctx, created.ID)
 	if err == nil {
-		s.worker.Submit(worker.MetadataJob{
+		_ = s.bus.Publish(ctx, event.URLCreated{
+			URL:        created,
 			MetadataID: meta.ID,
-			URLID:      created.ID,
-			ShortCode:  created.ShortCode,
 			UserID:     userID,
-			TargetURL:  created.OriginalURL,
 		})
 	}
 

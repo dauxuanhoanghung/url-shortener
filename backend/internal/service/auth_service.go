@@ -2,16 +2,13 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/dauxuanhoanghung/url-shortener/internal/dto"
-	"github.com/dauxuanhoanghung/url-shortener/internal/mailer"
+	"github.com/dauxuanhoanghung/url-shortener/internal/event"
 	"github.com/dauxuanhoanghung/url-shortener/internal/model"
 	"github.com/dauxuanhoanghung/url-shortener/internal/repository"
 	"github.com/dauxuanhoanghung/url-shortener/pkg/utils"
@@ -28,9 +25,7 @@ var (
 )
 
 const (
-	verifyEmailTokenTTL   = 24 * time.Hour
-	passwordResetTokenTTL = 30 * time.Minute
-	defaultPlanCode       = "free"
+	defaultPlanCode = "free"
 )
 
 type AuthService interface {
@@ -43,28 +38,26 @@ type AuthService interface {
 }
 
 type authService struct {
-	userRepo        repository.UserRepository
-	userPlanRepo    repository.UserPlanRepository
-	tokenRepo       repository.TokenRepository
-	mailer          mailer.Mailer
-	jwtSecret       string
-	frontendBaseURL string
+	userRepo     repository.UserRepository
+	userPlanRepo repository.UserPlanRepository
+	tokenRepo    repository.TokenRepository
+	bus          event.EventBus
+	jwtSecret    string
 }
 
 func NewAuthService(
 	userRepo repository.UserRepository,
 	userPlanRepo repository.UserPlanRepository,
 	tokenRepo repository.TokenRepository,
-	m mailer.Mailer,
-	jwtSecret, frontendBaseURL string,
+	bus event.EventBus,
+	jwtSecret string,
 ) AuthService {
 	return &authService{
-		userRepo:        userRepo,
-		userPlanRepo:    userPlanRepo,
-		tokenRepo:       tokenRepo,
-		mailer:          m,
-		jwtSecret:       jwtSecret,
-		frontendBaseURL: frontendBaseURL,
+		userRepo:     userRepo,
+		userPlanRepo: userPlanRepo,
+		tokenRepo:    tokenRepo,
+		bus:          bus,
+		jwtSecret:    jwtSecret,
 	}
 }
 
@@ -92,17 +85,13 @@ func (s *authService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 		return nil, err
 	}
 
-	// Create the user_plans row — every user starts on free.
 	userPlan, err := s.userPlanRepo.Create(ctx, user.ID, defaultPlanCode)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.issueVerificationEmail(ctx, user); err != nil {
-		// Don't fail registration on mail delivery problems; user can
-		// hit /auth/resend-verification once they log in.
-		_ = err
-	}
+	// Side-effects run asynchronously via the bus; email failure does not block registration.
+	_ = s.bus.Publish(ctx, event.UserRegistered{User: user, UserPlan: userPlan})
 
 	return s.generateAuthResponse(user, userPlan)
 }
@@ -146,7 +135,8 @@ func (s *authService) ResendVerification(ctx context.Context, userID uuid.UUID) 
 	if user.IsEmailVerified() {
 		return ErrEmailAlreadyVerified
 	}
-	return s.issueVerificationEmail(ctx, user)
+	// Reuse the UserRegistered event — the handler only needs the User field.
+	return s.bus.Publish(ctx, event.UserRegistered{User: user})
 }
 
 func (s *authService) ForgotPassword(ctx context.Context, email string) error {
@@ -155,7 +145,7 @@ func (s *authService) ForgotPassword(ctx context.Context, email string) error {
 	if err != nil {
 		return nil
 	}
-	return s.issuePasswordResetEmail(ctx, user)
+	return s.bus.Publish(ctx, event.PasswordResetRequested{User: user})
 }
 
 func (s *authService) ResetPassword(ctx context.Context, rawToken, newPassword string) error {
@@ -175,66 +165,17 @@ func (s *authService) ResetPassword(ctx context.Context, rawToken, newPassword s
 
 // --- internal helpers ---------------------------------------------------
 
-func (s *authService) issueVerificationEmail(ctx context.Context, user *model.User) error {
-	return s.issueTokenAndSend(ctx, user, model.TokenPurposeVerifyEmail, verifyEmailTokenTTL,
-		"Verify your email",
-		func(link string) string {
-			return fmt.Sprintf("Welcome! Please verify your email (valid 24h):\n\n%s", link)
-		},
-		s.frontendBaseURL+"/verify-email?token=",
-	)
-}
-
-func (s *authService) issuePasswordResetEmail(ctx context.Context, user *model.User) error {
-	return s.issueTokenAndSend(ctx, user, model.TokenPurposePasswordReset, passwordResetTokenTTL,
-		"Reset your password",
-		func(link string) string {
-			return fmt.Sprintf("Reset your password (valid 30 min):\n\n%s\n\nIf you did not request this, ignore this email.", link)
-		},
-		s.frontendBaseURL+"/reset-password?token=",
-	)
-}
-
-func (s *authService) issueTokenAndSend(
-	ctx context.Context,
-	user *model.User,
-	purpose string,
-	ttl time.Duration,
-	subject string,
-	bodyFn func(link string) string,
-	linkPrefix string,
-) error {
-	if err := s.tokenRepo.InvalidateByPurpose(ctx, user.ID, purpose); err != nil {
-		return err
-	}
-	raw, err := generateOpaqueToken()
-	if err != nil {
-		return err
-	}
-	now := time.Now()
-	if err := s.tokenRepo.Create(ctx, &model.Token{
-		ID:        uuid.New(),
-		UserID:    user.ID,
-		Purpose:   purpose,
-		TokenHash: hashToken(raw),
-		ExpiresAt: now.Add(ttl),
-		CreatedAt: now,
-	}); err != nil {
-		return err
-	}
-	return s.mailer.Send(ctx, mailer.Message{
-		To:      user.Email,
-		Subject: subject,
-		Body:    bodyFn(linkPrefix + raw),
-	})
-}
-
 func (s *authService) lookupToken(ctx context.Context, rawToken, purpose string) (*model.Token, error) {
-	tok, err := s.tokenRepo.GetUsableByHash(ctx, hashToken(rawToken), purpose)
+	tok, err := s.tokenRepo.GetUsableByHash(ctx, sha256Hex(rawToken), purpose)
 	if errors.Is(err, repository.ErrTokenNotFound) {
 		return nil, ErrTokenInvalid
 	}
 	return tok, err
+}
+
+func sha256Hex(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }
 
 func (s *authService) generateAuthResponse(user *model.User, userPlan *model.UserPlan) (*dto.AuthResponse, error) {
@@ -260,17 +201,4 @@ func (s *authService) generateAuthResponse(user *model.User, userPlan *model.Use
 			Role:          user.Role,
 		},
 	}, nil
-}
-
-func generateOpaqueToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
-}
-
-func hashToken(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:])
 }

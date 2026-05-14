@@ -15,6 +15,8 @@ import (
 	"github.com/dauxuanhoanghung/url-shortener/internal/cache"
 	"github.com/dauxuanhoanghung/url-shortener/internal/config"
 	"github.com/dauxuanhoanghung/url-shortener/internal/database"
+	"github.com/dauxuanhoanghung/url-shortener/internal/event"
+	eventhandler "github.com/dauxuanhoanghung/url-shortener/internal/event/handler"
 	"github.com/dauxuanhoanghung/url-shortener/internal/handler"
 	"github.com/dauxuanhoanghung/url-shortener/internal/mailer"
 	"github.com/dauxuanhoanghung/url-shortener/internal/repository"
@@ -62,8 +64,9 @@ func main() {
 	defer appCache.Close()
 	log.Info("cache ready", zap.String("driver", "redis"), zap.Bool("fallback", true))
 
-	// Dev-only console mailer. Swap to a real provider in prod. See docs/24-user-account-lifecycle.md §5.
-	appMailer := mailer.NewConsoleMailer(log)
+	// Transport selected by MAIL_TRANSPORT env var; probed at startup with
+	// automatic fallback to console. See docs/29-mailer-transports.md.
+	appMailer := mailer.New(cfg.Mailer, log)
 
 	userRepo     := repository.NewUserRepository(pgPool)
 	userPlanRepo := repository.NewUserPlanRepository(pgPool)
@@ -85,8 +88,22 @@ func main() {
 	metaWorker.Start(ctx)
 	defer metaWorker.Stop()
 
-	authService     := service.NewAuthService(userRepo, userPlanRepo, tokenRepo, appMailer, cfg.JWT.Secret, cfg.Server.FrontendBaseURL)
-	urlService      := service.NewURLService(urlRepo, metaRepo, userPlanRepo, planRepo, metaWorker)
+	bus := event.NewBus(log)
+	bus.Subscribe(event.TypeOf[event.UserRegistered](),
+		eventhandler.SendVerificationEmail(tokenRepo, appMailer, cfg.Server.FrontendBaseURL),
+		event.Async,
+	)
+	bus.Subscribe(event.TypeOf[event.PasswordResetRequested](),
+		eventhandler.SendPasswordResetEmail(tokenRepo, appMailer, cfg.Server.FrontendBaseURL),
+		event.Async,
+	)
+	bus.Subscribe(event.TypeOf[event.URLCreated](),
+		eventhandler.EnqueueMetadataFetch(metaWorker),
+		event.Async,
+	)
+
+	authService     := service.NewAuthService(userRepo, userPlanRepo, tokenRepo, bus, cfg.JWT.Secret)
+	urlService      := service.NewURLService(urlRepo, metaRepo, userPlanRepo, planRepo, bus)
 	planService     := service.NewPlanService(planRepo)
 	redirectService := service.NewRedirectService(urlRepo, appCache)
 

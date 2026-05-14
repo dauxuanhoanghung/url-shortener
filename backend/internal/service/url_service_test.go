@@ -3,15 +3,25 @@ package service
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/dauxuanhoanghung/url-shortener/internal/dto"
+	"github.com/dauxuanhoanghung/url-shortener/internal/event"
 	"github.com/dauxuanhoanghung/url-shortener/internal/model"
 	"github.com/dauxuanhoanghung/url-shortener/internal/repository"
-	"github.com/dauxuanhoanghung/url-shortener/internal/worker"
 	"github.com/google/uuid"
 )
+
+// fakeBus records published events and satisfies event.EventBus.
+type fakeBus struct{ published []any }
+
+func (f *fakeBus) Publish(_ context.Context, ev any) error {
+	f.published = append(f.published, ev)
+	return nil
+}
+func (f *fakeBus) Subscribe(_ reflect.Type, _ event.HandlerFunc, _ event.DispatchMode) {}
 
 const testBaseURL = "https://short.ly"
 
@@ -24,9 +34,9 @@ func newService(
 	metaRepo repository.URLMetadataRepository,
 	userPlanRepo repository.UserPlanRepository,
 	planRepo repository.PlanRepository,
-	w worker.MetadataWorker,
+	bus event.EventBus,
 ) URLService {
-	return NewURLService(urlRepo, metaRepo, userPlanRepo, planRepo, w)
+	return NewURLService(urlRepo, metaRepo, userPlanRepo, planRepo, bus)
 }
 
 func freePlan() *model.Plan {
@@ -39,13 +49,12 @@ func TestURLService_Create_HappyPath(t *testing.T) {
 	userID := uuid.New()
 	urlRepo := &stubURLRepo{}
 	metaRepo := &stubMetaRepo{}
-	w := &captureWorker{}
+	bus := &fakeBus{}
 
-	svc := newService(urlRepo,
-		metaRepo,
+	svc := newService(urlRepo, metaRepo,
 		&stubUserPlanRepo{planCode: "free"},
 		&stubPlanRepo{plan: freePlan()},
-		w,
+		bus,
 	)
 
 	resp, err := svc.Create(context.Background(), userID, dto.CreateURLRequest{OriginalURL: "https://example.com"}, testBaseURL)
@@ -61,21 +70,23 @@ func TestURLService_Create_HappyPath(t *testing.T) {
 	if resp.Metadata != nil {
 		t.Error("Create response should not include metadata (nil expected)")
 	}
-	if !w.submitted {
-		t.Error("expected MetadataWorker.Submit to be called after Create")
+	if len(bus.published) == 0 {
+		t.Error("expected URLCreated event to be published after Create")
+	}
+	if _, ok := bus.published[0].(event.URLCreated); !ok {
+		t.Errorf("expected URLCreated event, got %T", bus.published[0])
 	}
 }
 
 func TestURLService_Create_PlanLimitReached(t *testing.T) {
 	userID := uuid.New()
-	// Already at the limit (5 URLs, max 5).
 	urlRepo := &stubURLRepo{count: 5}
 
 	svc := newService(urlRepo,
 		&stubMetaRepo{},
 		&stubUserPlanRepo{planCode: "free"},
 		&stubPlanRepo{plan: freePlan()},
-		&captureWorker{},
+		&fakeBus{},
 	)
 
 	_, err := svc.Create(context.Background(), userID, dto.CreateURLRequest{OriginalURL: "https://example.com"}, testBaseURL)
@@ -102,7 +113,7 @@ func TestURLService_Create_InvalidURL(t *testing.T) {
 		&stubMetaRepo{},
 		&stubUserPlanRepo{planCode: "free"},
 		&stubPlanRepo{plan: freePlan()},
-		&captureWorker{},
+		&fakeBus{},
 	)
 
 	for _, tc := range cases {
@@ -117,14 +128,13 @@ func TestURLService_Create_InvalidURL(t *testing.T) {
 
 func TestURLService_Create_ShortCodeConflictRetries(t *testing.T) {
 	userID := uuid.New()
-	// Fail with conflict on the first 3 attempts, succeed on the 4th.
 	urlRepo := &stubURLRepo{conflictUntil: 3}
 
 	svc := newService(urlRepo,
 		&stubMetaRepo{},
 		&stubUserPlanRepo{planCode: "free"},
 		&stubPlanRepo{plan: freePlan()},
-		&captureWorker{},
+		&fakeBus{},
 	)
 
 	resp, err := svc.Create(context.Background(), userID, dto.CreateURLRequest{OriginalURL: "https://example.com"}, testBaseURL)
@@ -140,13 +150,13 @@ func TestURLService_Create_ShortCodeConflictRetries(t *testing.T) {
 }
 
 func TestURLService_Create_ExhaustsRetries(t *testing.T) {
-	urlRepo := &stubURLRepo{conflictUntil: 99} // always conflict
+	urlRepo := &stubURLRepo{conflictUntil: 99}
 
 	svc := newService(urlRepo,
 		&stubMetaRepo{},
 		&stubUserPlanRepo{planCode: "free"},
 		&stubPlanRepo{plan: freePlan()},
-		&captureWorker{},
+		&fakeBus{},
 	)
 
 	_, err := svc.Create(context.Background(), uuid.New(), dto.CreateURLRequest{OriginalURL: "https://example.com"}, testBaseURL)
@@ -157,15 +167,15 @@ func TestURLService_Create_ExhaustsRetries(t *testing.T) {
 
 func TestURLService_Create_MetadataFailure_StillReturnsURL(t *testing.T) {
 	// If the metadata row creation fails, Create should still succeed —
-	// the worker just won't be submitted (best-effort).
+	// the URLCreated event won't be published (best-effort).
 	urlRepo := &stubURLRepo{}
 	metaRepo := &stubMetaRepo{createErr: errors.New("db down")}
-	w := &captureWorker{}
+	bus := &fakeBus{}
 
 	svc := newService(urlRepo, metaRepo,
 		&stubUserPlanRepo{planCode: "free"},
 		&stubPlanRepo{plan: freePlan()},
-		w,
+		bus,
 	)
 
 	resp, err := svc.Create(context.Background(), uuid.New(), dto.CreateURLRequest{OriginalURL: "https://example.com"}, testBaseURL)
@@ -175,8 +185,8 @@ func TestURLService_Create_MetadataFailure_StillReturnsURL(t *testing.T) {
 	if resp == nil {
 		t.Fatal("expected non-nil response")
 	}
-	if w.submitted {
-		t.Error("worker should NOT be submitted when metadata creation fails")
+	if len(bus.published) != 0 {
+		t.Error("URLCreated event should NOT be published when metadata creation fails")
 	}
 }
 
@@ -207,7 +217,7 @@ func TestURLService_List_ReturnsItemsWithMetadata(t *testing.T) {
 				OriginalURL: "https://other.com",
 				CreatedAt:   time.Now(),
 			},
-			Metadata: nil, // still pending
+			Metadata: nil,
 		},
 	}
 
@@ -215,7 +225,7 @@ func TestURLService_List_ReturnsItemsWithMetadata(t *testing.T) {
 	svc := newService(urlRepo, &stubMetaRepo{},
 		&stubUserPlanRepo{planCode: "free"},
 		&stubPlanRepo{plan: freePlan()},
-		&captureWorker{},
+		&fakeBus{},
 	)
 
 	resp, err := svc.List(context.Background(), userID, 50, 0, testBaseURL)
@@ -248,7 +258,7 @@ func TestURLService_List_DefaultLimit(t *testing.T) {
 	svc := newService(urlRepo, &stubMetaRepo{},
 		&stubUserPlanRepo{planCode: "free"},
 		&stubPlanRepo{plan: freePlan()},
-		&captureWorker{},
+		&fakeBus{},
 	)
 
 	_, err := svc.List(context.Background(), uuid.New(), 0, 0, testBaseURL)
@@ -270,7 +280,7 @@ func TestURLService_Delete_HappyPath(t *testing.T) {
 	svc := newService(urlRepo, &stubMetaRepo{},
 		&stubUserPlanRepo{planCode: "free"},
 		&stubPlanRepo{plan: freePlan()},
-		&captureWorker{},
+		&fakeBus{},
 	)
 
 	if err := svc.Delete(context.Background(), urlID, userID); err != nil {
@@ -282,7 +292,7 @@ func TestURLService_Delete_NotFound(t *testing.T) {
 	svc := newService(&stubURLRepo{}, &stubMetaRepo{},
 		&stubUserPlanRepo{planCode: "free"},
 		&stubPlanRepo{plan: freePlan()},
-		&captureWorker{},
+		&fakeBus{},
 	)
 
 	err := svc.Delete(context.Background(), uuid.New(), uuid.New())
@@ -300,7 +310,7 @@ func TestURLService_Delete_Forbidden(t *testing.T) {
 	svc := newService(urlRepo, &stubMetaRepo{},
 		&stubUserPlanRepo{planCode: "free"},
 		&stubPlanRepo{plan: freePlan()},
-		&captureWorker{},
+		&fakeBus{},
 	)
 
 	err := svc.Delete(context.Background(), urlID, otherID)
@@ -356,7 +366,7 @@ func (r *stubURLRepo) GetByShortCode(_ context.Context, _ string) (*model.ShortU
 	return nil, repository.ErrURLNotFound
 }
 
-func (r *stubURLRepo) SoftDelete(_ context.Context, id, userID uuid.UUID) error {
+func (r *stubURLRepo) SoftDelete(_ context.Context, id, _ uuid.UUID) error {
 	if r.storedURL != nil && r.storedURL.ID == id {
 		return nil
 	}
@@ -425,12 +435,3 @@ func (r *stubPlanRepo) List(_ context.Context) ([]model.Plan, error) {
 	}
 	return nil, nil
 }
-
-// captureWorker satisfies worker.MetadataWorker.
-type captureWorker struct {
-	submitted bool
-}
-
-func (w *captureWorker) Submit(_ worker.MetadataJob)    { w.submitted = true }
-func (w *captureWorker) Start(_ context.Context)        {}
-func (w *captureWorker) Stop()                          {}

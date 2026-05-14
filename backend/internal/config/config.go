@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/joho/godotenv"
 )
@@ -13,6 +14,7 @@ type Config struct {
 	Redis    RedisConfig
 	JWT      JWTConfig
 	Stripe   StripeConfig
+	Mailer   MailerConfig
 }
 
 type ServerConfig struct {
@@ -55,6 +57,18 @@ type StripeConfig struct {
 	WebhookSecret string
 }
 
+type MailerConfig struct {
+	Transport    string // "console" | "smtp" | "sendmail"
+	From         string // sender address
+	FromName     string // display name in From header
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPTLS      bool   // true = STARTTLS (port 587); false = plain (port 25)
+	SendmailPath string // absolute path to sendmail binary
+}
+
 func Load() (*Config, error) {
 	_ = godotenv.Load("../../.env")
 
@@ -83,6 +97,17 @@ func Load() (*Config, error) {
 			SecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
 			WebhookSecret: getEnv("STRIPE_WEBHOOK_SECRET", ""),
 		},
+		Mailer: MailerConfig{
+			Transport:    getEnv("MAIL_TRANSPORT", "console"),
+			From:         getEnv("MAIL_FROM", "noreply@localhost"),
+			FromName:     getEnv("MAIL_FROM_NAME", "URL Shortener"),
+			SMTPHost:     getEnv("SMTP_HOST", ""),
+			SMTPPort:     getEnvInt("SMTP_PORT", 587),
+			SMTPUsername: getEnv("SMTP_USERNAME", ""),
+			SMTPPassword: getEnv("SMTP_PASSWORD", ""),
+			SMTPTLS:      getEnvBool("SMTP_TLS", true),
+			SendmailPath: getEnv("SENDMAIL_PATH", "/usr/sbin/sendmail"),
+		},
 	}
 
 	return cfg, nil
@@ -91,6 +116,24 @@ func Load() (*Config, error) {
 func getEnv(key, fallback string) string {
 	if val, ok := os.LookupEnv(key); ok {
 		return val
+	}
+	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	if val, ok := os.LookupEnv(key); ok {
+		if n, err := strconv.Atoi(val); err == nil {
+			return n
+		}
+	}
+	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	if val, ok := os.LookupEnv(key); ok {
+		if b, err := strconv.ParseBool(val); err == nil {
+			return b
+		}
 	}
 	return fallback
 }
