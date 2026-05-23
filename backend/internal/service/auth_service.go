@@ -181,11 +181,12 @@ func sha256Hex(raw string) string {
 func (s *authService) generateAuthResponse(user *model.User, userPlan *model.UserPlan) (*dto.AuthResponse, error) {
 	userID := user.ID.String()
 
-	accessToken, err := utils.GenerateAccessToken(userID, user.Email, s.jwtSecret)
+	tokenIn := utils.TokenInput{UserID: userID, Email: user.Email, Role: user.Role}
+	accessToken, err := utils.GenerateAccessToken(tokenIn, s.jwtSecret)
 	if err != nil {
 		return nil, err
 	}
-	refreshToken, err := utils.GenerateRefreshToken(userID, user.Email, s.jwtSecret)
+	refreshToken, err := utils.GenerateRefreshToken(tokenIn, s.jwtSecret)
 	if err != nil {
 		return nil, err
 	}

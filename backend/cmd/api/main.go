@@ -74,6 +74,7 @@ func main() {
 	metaRepo     := repository.NewURLMetadataRepository(pgPool)
 	tokenRepo    := repository.NewTokenRepository(pgPool)
 	planRepo     := repository.NewPlanRepository(pgPool)
+	auditRepo    := repository.NewAdminAuditRepository(pgPool)
 
 	sseHub := sse.NewHub()
 
@@ -106,19 +107,22 @@ func main() {
 	urlService      := service.NewURLService(urlRepo, metaRepo, userPlanRepo, planRepo, bus)
 	planService     := service.NewPlanService(planRepo)
 	redirectService := service.NewRedirectService(urlRepo, appCache)
+	adminService    := service.NewAdminService(userRepo, userPlanRepo, planRepo, auditRepo)
 
 	authHandler     := handler.NewAuthHandler(authService)
 	urlHandler      := handler.NewURLHandler(urlService, cfg.Server.BaseURL)
 	planHandler     := handler.NewPlanHandler(planService)
 	redirectHandler := handler.NewRedirectHandler(redirectService)
 	sseHandler      := handler.NewSSEHandler(sseHub)
+	adminHandler    := handler.NewAdminHandler(adminService)
 
-	r := router.Setup(cfg.Server.Mode, cfg.JWT.Secret, userRepo, router.Handlers{
+	r := router.Setup(cfg.Server.Mode, cfg.JWT.Secret, userRepo, appCache, router.Handlers{
 		Auth:     authHandler,
 		URL:      urlHandler,
 		Plan:     planHandler,
 		Redirect: redirectHandler,
 		SSE:      sseHandler,
+		Admin:    adminHandler,
 	})
 
 	srv := &http.Server{

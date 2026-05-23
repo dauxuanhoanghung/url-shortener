@@ -59,4 +59,10 @@ func (c *InMemoryCache) Delete(_ context.Context, key string) error {
 	return nil
 }
 
+// Increment is not supported on the in-memory driver because per-replica
+// counters break global rate limits. Use Redis for distributed counters.
+func (c *InMemoryCache) Increment(_ context.Context, _ string, _ time.Duration) (int64, error) {
+	return 0, ErrNotSupported
+}
+
 func (c *InMemoryCache) Close() error { return nil }

@@ -64,7 +64,9 @@ func (b *bus) Publish(ctx context.Context, ev any) error {
 	for _, s := range subs {
 		if s.mode == Async {
 			go func(sub subscription) {
-				if err := sub.handler(ctx, ev); err != nil {
+				// Use a fresh context so the goroutine is not cancelled when
+				// the HTTP request that triggered Publish returns.
+				if err := sub.handler(context.Background(), ev); err != nil {
 					b.logger.Error("async event handler failed",
 						zap.String("event", reflect.TypeOf(ev).Name()),
 						zap.Error(err),

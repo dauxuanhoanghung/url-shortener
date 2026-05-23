@@ -16,6 +16,7 @@ var ErrPlanNotFound = errors.New("plan not found")
 type PlanRepository interface {
 	GetByCode(ctx context.Context, code string) (*model.Plan, error)
 	List(ctx context.Context) ([]model.Plan, error)
+	UpdateFeatures(ctx context.Context, code string, features map[string]bool) (*model.Plan, error)
 }
 
 type planRepository struct {
@@ -51,6 +52,24 @@ func (r *planRepository) List(ctx context.Context) ([]model.Plan, error) {
 		plans = append(plans, *p)
 	}
 	return plans, nil
+}
+
+func (r *planRepository) UpdateFeatures(ctx context.Context, code string, features map[string]bool) (*model.Plan, error) {
+	payload, err := json.Marshal(features)
+	if err != nil {
+		return nil, err
+	}
+	row, err := r.q.UpdatePlanFeatures(ctx, sqlc.UpdatePlanFeaturesParams{
+		Code:     code,
+		Features: payload,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrPlanNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return planFromRow(row)
 }
 
 func planFromRow(row sqlc.Plan) (*model.Plan, error) {

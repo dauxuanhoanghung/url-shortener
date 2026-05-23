@@ -10,7 +10,11 @@ import (
 const testSecret = "test-secret-please-change"
 
 func TestAccessToken_Roundtrip(t *testing.T) {
-	tok, err := GenerateAccessToken("user-1", "user@example.com", testSecret)
+	tok, err := GenerateAccessToken(TokenInput{
+		UserID: "user-1",
+		Email:  "user@example.com",
+		Role:   "user",
+	}, testSecret)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -24,13 +28,20 @@ func TestAccessToken_Roundtrip(t *testing.T) {
 	if claims.Email != "user@example.com" {
 		t.Errorf("email: got %q want %q", claims.Email, "user@example.com")
 	}
+	if claims.Role != "user" {
+		t.Errorf("role: got %q want %q", claims.Role, "user")
+	}
 }
 
 func TestRefreshToken_Roundtrip(t *testing.T) {
 	// Refresh tokens share the same claim shape as access tokens; the only
 	// difference is the expiry window. Verify both claim propagation and
 	// that the token is actually valid right after issue.
-	tok, err := GenerateRefreshToken("user-2", "other@example.com", testSecret)
+	tok, err := GenerateRefreshToken(TokenInput{
+		UserID: "user-2",
+		Email:  "other@example.com",
+		Role:   "user",
+	}, testSecret)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -43,8 +54,48 @@ func TestRefreshToken_Roundtrip(t *testing.T) {
 	}
 }
 
+func TestAdminToken_ShorterExpiry(t *testing.T) {
+	// Admin tokens use a tighter TTL (5 min access / 8 h refresh). Verify the
+	// expiry actually shrinks when role=admin so we catch regressions in the
+	// role-based switch.
+	in := TokenInput{UserID: "admin-1", Email: "admin@example.com", Role: "admin"}
+
+	accessTok, err := GenerateAccessToken(in, testSecret)
+	if err != nil {
+		t.Fatalf("generate access: %v", err)
+	}
+	accessClaims, err := ValidateToken(accessTok, testSecret)
+	if err != nil {
+		t.Fatalf("validate access: %v", err)
+	}
+	if accessClaims.Role != "admin" {
+		t.Errorf("role: got %q want admin", accessClaims.Role)
+	}
+	gotAccessTTL := time.Until(accessClaims.ExpiresAt.Time)
+	if gotAccessTTL > AccessTokenExpiry {
+		t.Errorf("admin access TTL too long: got %v, expected ≤ %v", gotAccessTTL, AdminAccessTokenExpiry)
+	}
+
+	refreshTok, err := GenerateRefreshToken(in, testSecret)
+	if err != nil {
+		t.Fatalf("generate refresh: %v", err)
+	}
+	refreshClaims, err := ValidateToken(refreshTok, testSecret)
+	if err != nil {
+		t.Fatalf("validate refresh: %v", err)
+	}
+	gotRefreshTTL := time.Until(refreshClaims.ExpiresAt.Time)
+	if gotRefreshTTL > RefreshTokenExpiry {
+		t.Errorf("admin refresh TTL too long: got %v, expected ≤ %v", gotRefreshTTL, AdminRefreshTokenExpiry)
+	}
+}
+
 func TestValidateToken_WrongSecret(t *testing.T) {
-	tok, err := GenerateAccessToken("user-1", "user@example.com", testSecret)
+	tok, err := GenerateAccessToken(TokenInput{
+		UserID: "user-1",
+		Email:  "user@example.com",
+		Role:   "user",
+	}, testSecret)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -75,6 +126,7 @@ func TestValidateToken_Expired(t *testing.T) {
 	claims := TokenClaims{
 		UserID: "user-1",
 		Email:  "user@example.com",
+		Role:   "user",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-time.Hour)),
@@ -96,6 +148,7 @@ func TestValidateToken_WrongAlgorithm(t *testing.T) {
 	claims := TokenClaims{
 		UserID: "user-1",
 		Email:  "user@example.com",
+		Role:   "user",
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},

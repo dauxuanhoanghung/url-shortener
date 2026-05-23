@@ -7,6 +7,21 @@ import type { ShortURL } from '@/types'
 
 const store = useUrlStore()
 const copiedId = ref<string | null>(null)
+// Track URLs whose og_image failed to load so we don't show the strip.
+// Keyed by url.id + og_image to reset when the image src changes via SSE.
+const brokenOgImages = ref(new Set<string>())
+
+function ogImageKey(u: ShortURL) {
+  return `${u.id}::${u.metadata?.og_image ?? ''}`
+}
+
+function onOgError(u: ShortURL) {
+  brokenOgImages.value.add(ogImageKey(u))
+}
+
+function showOgImage(u: ShortURL) {
+  return !!u.metadata?.og_image && !brokenOgImages.value.has(ogImageKey(u))
+}
 
 async function copyLink(id: string, url: string) {
   try {
@@ -152,16 +167,16 @@ function faviconSrc(u: ShortURL): string | null {
         </div>
       </div>
 
-      <!-- OG image strip — only shown when available -->
+      <!-- OG image strip — only shown when available and not broken -->
       <div
-        v-if="u.metadata?.og_image"
+        v-if="showOgImage(u)"
         class="border-t px-4 pb-3 pt-2"
       >
         <img
-          :src="u.metadata.og_image"
-          :alt="u.metadata.title || shortHost(u.original_url)"
+          :src="u.metadata!.og_image!"
+          :alt="u.metadata!.title || shortHost(u.original_url)"
           class="h-32 w-full rounded object-cover"
-          @error="($event.target as HTMLImageElement).parentElement!.style.display='none'"
+          @error="onOgError(u)"
         />
       </div>
     </div>

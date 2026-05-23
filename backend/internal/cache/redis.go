@@ -37,6 +37,20 @@ func (r *redisCache) Delete(ctx context.Context, key string) error {
 	return r.client.Del(ctx, key).Err()
 }
 
+// Increment atomically increments key and sets ttl on first write.
+// Uses a pipeline so the INCR and EXPIRE are sent together but are not atomic;
+// the worst case is the key stays without a TTL for one extra round-trip, which
+// is safe for rate-limit counters.
+func (r *redisCache) Increment(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+	pipe := r.client.Pipeline()
+	incr := pipe.Incr(ctx, key)
+	pipe.Expire(ctx, key, ttl)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return 0, err
+	}
+	return incr.Val(), nil
+}
+
 func (r *redisCache) Close() error {
 	return r.client.Close()
 }

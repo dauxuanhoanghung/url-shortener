@@ -1,9 +1,11 @@
-import type { SSEUrlDeletedEvent } from '../types'
+import type { SSEUrlDeletedEvent, SSEMetadataUpdatedEvent } from '../types'
 
 type UrlDeletedHandler = (event: SSEUrlDeletedEvent) => void
+type MetadataUpdatedHandler = (event: SSEMetadataUpdatedEvent) => void
 
 let es: EventSource | null = null
-const handlers: UrlDeletedHandler[] = []
+const deletedHandlers: UrlDeletedHandler[] = []
+const metadataHandlers: MetadataUpdatedHandler[] = []
 
 export const sseService = {
   connect(token: string) {
@@ -13,7 +15,16 @@ export const sseService = {
     es.addEventListener('url_deleted', (e: MessageEvent) => {
       try {
         const payload = JSON.parse(e.data) as SSEUrlDeletedEvent
-        handlers.forEach((h) => h(payload))
+        deletedHandlers.forEach((h) => h(payload))
+      } catch {
+        // malformed event — ignore
+      }
+    })
+
+    es.addEventListener('metadata_updated', (e: MessageEvent) => {
+      try {
+        const payload = JSON.parse(e.data) as SSEMetadataUpdatedEvent
+        metadataHandlers.forEach((h) => h(payload))
       } catch {
         // malformed event — ignore
       }
@@ -30,10 +41,18 @@ export const sseService = {
   },
 
   onUrlDeleted(handler: UrlDeletedHandler): () => void {
-    handlers.push(handler)
+    deletedHandlers.push(handler)
     return () => {
-      const idx = handlers.indexOf(handler)
-      if (idx !== -1) handlers.splice(idx, 1)
+      const idx = deletedHandlers.indexOf(handler)
+      if (idx !== -1) deletedHandlers.splice(idx, 1)
+    }
+  },
+
+  onMetadataUpdated(handler: MetadataUpdatedHandler): () => void {
+    metadataHandlers.push(handler)
+    return () => {
+      const idx = metadataHandlers.indexOf(handler)
+      if (idx !== -1) metadataHandlers.splice(idx, 1)
     }
   },
 }

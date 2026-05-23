@@ -25,3 +25,11 @@ type User struct {
 func (u *User) IsEmailVerified() bool { return u.EmailVerifiedAt != nil }
 func (u *User) IsAdmin() bool         { return u.Role == RoleAdmin }
 func (u *User) IsDisabled() bool      { return u.DisabledAt != nil }
+
+// UserWithPlan is the row shape returned by admin listing queries: the user
+// record joined to user_plans so the admin UI can show plan_code without a
+// second round-trip. PlanCode is empty when the user has no user_plans row.
+type UserWithPlan struct {
+	User
+	PlanCode string
+}

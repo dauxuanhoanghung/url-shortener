@@ -65,6 +65,16 @@ func (c *Chain) Delete(ctx context.Context, key string) error {
 	return primaryErr
 }
 
+// Increment delegates only to the primary cache (caches[0]).
+// Rate-limit counters must not fan-out to in-memory replicas — each replica
+// would hold an independent counter, breaking the global limit.
+func (c *Chain) Increment(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+	if len(c.caches) == 0 {
+		return 0, ErrNotSupported
+	}
+	return c.caches[0].Increment(ctx, key, ttl)
+}
+
 func (c *Chain) Close() error {
 	var firstErr error
 	for _, inner := range c.caches {

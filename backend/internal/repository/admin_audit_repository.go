@@ -23,6 +23,8 @@ type AdminAuditEntry struct {
 
 type AdminAuditRepository interface {
 	Create(ctx context.Context, entry *AdminAuditEntry) error
+	List(ctx context.Context, limit, offset int32) ([]AdminAuditEntry, error)
+	Count(ctx context.Context) (int64, error)
 }
 
 type adminAuditRepository struct {
@@ -45,4 +47,34 @@ func (r *adminAuditRepository) Create(ctx context.Context, entry *AdminAuditEntr
 		CreatedAt:  pgtype.Timestamp{Time: entry.CreatedAt, Valid: true},
 	}
 	return r.q.CreateAdminAuditEntry(ctx, params)
+}
+
+func (r *adminAuditRepository) List(ctx context.Context, limit, offset int32) ([]AdminAuditEntry, error) {
+	rows, err := r.q.ListAdminAuditEntries(ctx, sqlc.ListAdminAuditEntriesParams{Limit: limit, Offset: offset})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AdminAuditEntry, 0, len(rows))
+	for _, row := range rows {
+		entry := AdminAuditEntry{
+			ID:        row.ID,
+			ActorID:   row.ActorID,
+			Action:    row.Action,
+			Before:    row.Before,
+			After:     row.After,
+			CreatedAt: row.CreatedAt.Time,
+		}
+		if row.TargetType.Valid {
+			entry.TargetType = row.TargetType.String
+		}
+		if row.TargetID.Valid {
+			entry.TargetID = row.TargetID.String
+		}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+func (r *adminAuditRepository) Count(ctx context.Context) (int64, error) {
+	return r.q.CountAdminAuditEntries(ctx)
 }

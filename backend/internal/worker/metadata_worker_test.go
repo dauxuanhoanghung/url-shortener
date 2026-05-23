@@ -2,8 +2,6 @@ package worker
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -17,220 +15,41 @@ import (
 	"github.com/google/uuid"
 )
 
-// ── parse helpers ────────────────────────────────────────────────────────────
-
-func TestParseMetadata_Title(t *testing.T) {
-	body := []byte(`<html><head><title>Hello World</title></head></html>`)
-	var r model.FetchResult
-	parseMetadata(body, &r)
-	if r.Title == nil || *r.Title != "Hello World" {
-		t.Errorf("title: got %v want %q", r.Title, "Hello World")
-	}
-}
-
-func TestParseMetadata_Description(t *testing.T) {
-	body := []byte(`<html><head><meta name="description" content="Great page"></head></html>`)
-	var r model.FetchResult
-	parseMetadata(body, &r)
-	if r.Description == nil || *r.Description != "Great page" {
-		t.Errorf("description: got %v want %q", r.Description, "Great page")
-	}
-}
-
-func TestParseMetadata_OgImage(t *testing.T) {
-	body := []byte(`<html><head><meta property="og:image" content="https://example.com/img.png"></head></html>`)
-	var r model.FetchResult
-	parseMetadata(body, &r)
-	if r.OgImage == nil || *r.OgImage != "https://example.com/img.png" {
-		t.Errorf("og:image: got %v want %q", r.OgImage, "https://example.com/img.png")
-	}
-}
-
-func TestParseMetadata_Favicon(t *testing.T) {
-	body := []byte(`<html><head><link rel="icon" href="/favicon.ico"></head></html>`)
-	var r model.FetchResult
-	parseMetadata(body, &r)
-	if r.FaviconURL == nil || *r.FaviconURL != "/favicon.ico" {
-		t.Errorf("favicon: got %v want %q", r.FaviconURL, "/favicon.ico")
-	}
-}
-
-func TestParseMetadata_AllFields(t *testing.T) {
-	body := []byte(`<!DOCTYPE html><html><head>
-		<title>  My Page  </title>
-		<meta name="description" content="A description">
-		<meta property="og:image" content="https://img.example.com/og.png">
-		<link rel="shortcut icon" href="/static/favicon.ico">
-	</head><body></body></html>`)
-	var r model.FetchResult
-	parseMetadata(body, &r)
-	if r.Title == nil || *r.Title != "My Page" {
-		t.Errorf("title: got %v", r.Title)
-	}
-	if r.Description == nil || *r.Description != "A description" {
-		t.Errorf("description: got %v", r.Description)
-	}
-	if r.OgImage == nil || *r.OgImage != "https://img.example.com/og.png" {
-		t.Errorf("og:image: got %v", r.OgImage)
-	}
-	if r.FaviconURL == nil || *r.FaviconURL != "/static/favicon.ico" {
-		t.Errorf("favicon: got %v", r.FaviconURL)
-	}
-}
-
-func TestParseMetadata_EmptyBody(t *testing.T) {
-	var r model.FetchResult
-	parseMetadata([]byte(""), &r)
-	if r.Title != nil || r.Description != nil || r.OgImage != nil || r.FaviconURL != nil {
-		t.Error("expected all fields nil for empty body")
-	}
-}
-
-func TestParseMetadata_MissingFields(t *testing.T) {
-	body := []byte(`<html><head></head><body>Just text</body></html>`)
-	var r model.FetchResult
-	parseMetadata(body, &r)
-	if r.Title != nil {
-		t.Errorf("expected nil title, got %q", *r.Title)
-	}
-}
-
-// ── fetch() via httptest server ──────────────────────────────────────────────
-
-func newTestWorker(t *testing.T) *metadataWorker {
-	t.Helper()
-	log, _ := zap.NewDevelopment()
-	return &metadataWorker{
-		jobs:     make(chan MetadataJob, 1),
-		metaRepo: &fakeMetaRepo{},
-		urlRepo:  &fakeURLRepo{},
-		cache:    cache.NewInMemoryCache(),
-		notifier: &fakeNotifier{},
-		log:      log,
-		client:   &http.Client{Timeout: 5 * time.Second},
-	}
-}
-
-func TestFetch_200_ParsesMetadata(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`<html><head><title>Test Page</title></head></html>`))
-	}))
-	defer srv.Close()
-
-	w := newTestWorker(t)
-	result := w.fetch(srv.URL)
-
-	if result.FetchStatus != model.FetchStatusOK {
-		t.Errorf("fetch_status: got %q want %q", result.FetchStatus, model.FetchStatusOK)
-	}
-	if result.HTTPStatus != 200 {
-		t.Errorf("http_status: got %d want 200", result.HTTPStatus)
-	}
-	if result.Title == nil || *result.Title != "Test Page" {
-		t.Errorf("title: got %v want %q", result.Title, "Test Page")
-	}
-}
-
-func TestFetch_404_ReturnsFailed(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer srv.Close()
-
-	w := newTestWorker(t)
-	result := w.fetch(srv.URL)
-
-	if result.FetchStatus != model.FetchStatusFailed {
-		t.Errorf("fetch_status: got %q want failed", result.FetchStatus)
-	}
-	if result.HTTPStatus != 404 {
-		t.Errorf("http_status: got %d want 404", result.HTTPStatus)
-	}
-}
-
-func TestFetch_500_ReturnsFailed(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-
-	w := newTestWorker(t)
-	result := w.fetch(srv.URL)
-
-	if result.FetchStatus != model.FetchStatusFailed {
-		t.Errorf("fetch_status: got %q want failed", result.FetchStatus)
-	}
-	if result.HTTPStatus != 500 {
-		t.Errorf("http_status: got %d want 500", result.HTTPStatus)
-	}
-}
-
-func TestFetch_NetworkError_ReturnsFailed(t *testing.T) {
-	w := newTestWorker(t)
-	// Use an address that refuses connections immediately.
-	result := w.fetch("http://127.0.0.1:1")
-
-	if result.FetchStatus != model.FetchStatusFailed {
-		t.Errorf("fetch_status: got %q want failed", result.FetchStatus)
-	}
-}
-
-func TestFetch_InvalidURL_ReturnsFailed(t *testing.T) {
-	w := newTestWorker(t)
-	result := w.fetch("://not-a-url")
-
-	if result.FetchStatus != model.FetchStatusFailed {
-		t.Errorf("fetch_status: got %q want failed", result.FetchStatus)
-	}
-}
-
-func TestFetch_SetsUserAgent(t *testing.T) {
-	var gotUA string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotUA = r.Header.Get("User-Agent")
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	w := newTestWorker(t)
-	w.fetch(srv.URL)
-
-	if gotUA != "urlshortener-bot/1.0" {
-		t.Errorf("user-agent: got %q want %q", gotUA, "urlshortener-bot/1.0")
-	}
-}
-
 // ── process() — end-to-end with fakes ────────────────────────────────────────
 
-func TestProcess_200_StoresOK_NoDelete_NoNotify(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`<html><head><title>OK</title></head></html>`))
-	}))
-	defer srv.Close()
-
-	metaRepo := &fakeMetaRepo{}
-	urlRepo := &fakeURLRepo{}
-	notifier := &fakeNotifier{}
+func newWorkerWith(fetcher *fakeFetcher, metaRepo *fakeMetaRepo, urlRepo *fakeURLRepo, notifier *fakeNotifier) *metadataWorker {
 	log, _ := zap.NewDevelopment()
-
-	w := &metadataWorker{
-		jobs:     make(chan MetadataJob, 1),
+	return &metadataWorker{
+		jobs:     make(chan MetadataJob, 4),
 		metaRepo: metaRepo,
 		urlRepo:  urlRepo,
 		cache:    cache.NewInMemoryCache(),
 		notifier: notifier,
+		fetcher:  fetcher,
 		log:      log,
-		client:   &http.Client{Timeout: 5 * time.Second},
 	}
+}
 
+func TestProcess_200_StoresOK_NotifiesMetadataUpdated(t *testing.T) {
+	title := "Test Page"
+	fetcher := &fakeFetcher{result: model.FetchResult{
+		FetchStatus: model.FetchStatusOK,
+		HTTPStatus:  200,
+		Title:       &title,
+	}}
+	metaRepo := &fakeMetaRepo{}
+	urlRepo := &fakeURLRepo{}
+	notifier := &fakeNotifier{}
+
+	w := newWorkerWith(fetcher, metaRepo, urlRepo, notifier)
+
+	userID := uuid.New()
 	job := MetadataJob{
 		MetadataID: uuid.New(),
 		URLID:      uuid.New(),
 		ShortCode:  "abc123",
-		UserID:     uuid.New(),
-		TargetURL:  srv.URL,
+		UserID:     userID,
+		TargetURL:  "https://example.com",
 	}
 	w.process(context.Background(), job)
 
@@ -243,34 +62,39 @@ func TestProcess_200_StoresOK_NoDelete_NoNotify(t *testing.T) {
 	if urlRepo.softDeleteByIDCalled {
 		t.Error("should NOT soft-delete on 200")
 	}
-	if notifier.notifyCalled {
-		t.Error("should NOT notify on 200")
+	if !notifier.notifyCalled {
+		t.Error("expected metadata_updated SSE event on 200")
+	}
+	if notifier.lastEvent.Type != "metadata_updated" {
+		t.Errorf("event type: got %q want metadata_updated", notifier.lastEvent.Type)
+	}
+	if notifier.lastUserID != userID {
+		t.Errorf("notify userID: got %v want %v", notifier.lastUserID, userID)
 	}
 }
 
-func TestProcess_404_SoftDeletes_Notifies(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer srv.Close()
-
+func TestProcess_404_SoftDeletes_NotifiesUrlDeleted(t *testing.T) {
+	fetcher := &fakeFetcher{result: model.FetchResult{
+		FetchStatus: model.FetchStatusFailed,
+		HTTPStatus:  404,
+	}}
 	metaRepo := &fakeMetaRepo{}
 	urlRepo := &fakeURLRepo{}
 	notifier := &fakeNotifier{}
-	log, _ := zap.NewDevelopment()
 	appCache := cache.NewInMemoryCache()
 
 	// Pre-seed cache to verify it gets invalidated.
 	appCache.Set(context.Background(), "url:abc123", []byte("cached"), time.Minute)
 
+	log, _ := zap.NewDevelopment()
 	w := &metadataWorker{
 		jobs:     make(chan MetadataJob, 1),
 		metaRepo: metaRepo,
 		urlRepo:  urlRepo,
 		cache:    appCache,
 		notifier: notifier,
+		fetcher:  fetcher,
 		log:      log,
-		client:   &http.Client{Timeout: 5 * time.Second},
 	}
 
 	userID := uuid.New()
@@ -279,7 +103,7 @@ func TestProcess_404_SoftDeletes_Notifies(t *testing.T) {
 		URLID:      uuid.New(),
 		ShortCode:  "abc123",
 		UserID:     userID,
-		TargetURL:  srv.URL,
+		TargetURL:  "https://example.com",
 	}
 	w.process(context.Background(), job)
 
@@ -303,31 +127,20 @@ func TestProcess_404_SoftDeletes_Notifies(t *testing.T) {
 }
 
 func TestProcess_500_NoDelete_NoNotify(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-
+	fetcher := &fakeFetcher{result: model.FetchResult{
+		FetchStatus: model.FetchStatusFailed,
+		HTTPStatus:  500,
+	}}
 	urlRepo := &fakeURLRepo{}
 	notifier := &fakeNotifier{}
-	log, _ := zap.NewDevelopment()
 
-	w := &metadataWorker{
-		jobs:     make(chan MetadataJob, 1),
-		metaRepo: &fakeMetaRepo{},
-		urlRepo:  urlRepo,
-		cache:    cache.NewInMemoryCache(),
-		notifier: notifier,
-		log:      log,
-		client:   &http.Client{Timeout: 5 * time.Second},
-	}
-
+	w := newWorkerWith(fetcher, &fakeMetaRepo{}, urlRepo, notifier)
 	w.process(context.Background(), MetadataJob{
 		MetadataID: uuid.New(),
 		URLID:      uuid.New(),
 		ShortCode:  "xyz",
 		UserID:     uuid.New(),
-		TargetURL:  srv.URL,
+		TargetURL:  "https://example.com",
 	})
 
 	if urlRepo.softDeleteByIDCalled {
@@ -339,20 +152,14 @@ func TestProcess_500_NoDelete_NoNotify(t *testing.T) {
 }
 
 func TestProcess_NetworkError_SoftDeletes_Notifies(t *testing.T) {
+	fetcher := &fakeFetcher{result: model.FetchResult{
+		FetchStatus: model.FetchStatusFailed,
+		HTTPStatus:  0,
+	}}
 	urlRepo := &fakeURLRepo{}
 	notifier := &fakeNotifier{}
-	log, _ := zap.NewDevelopment()
 
-	w := &metadataWorker{
-		jobs:     make(chan MetadataJob, 1),
-		metaRepo: &fakeMetaRepo{},
-		urlRepo:  urlRepo,
-		cache:    cache.NewInMemoryCache(),
-		notifier: notifier,
-		log:      log,
-		client:   &http.Client{Timeout: 100 * time.Millisecond},
-	}
-
+	w := newWorkerWith(fetcher, &fakeMetaRepo{}, urlRepo, notifier)
 	w.process(context.Background(), MetadataJob{
 		MetadataID: uuid.New(),
 		URLID:      uuid.New(),
@@ -372,12 +179,12 @@ func TestProcess_NetworkError_SoftDeletes_Notifies(t *testing.T) {
 // ── Submit: full goroutine pipeline ──────────────────────────────────────────
 
 func TestWorker_Submit_ProcessesJob(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`<html><head><title>Goroutine Page</title></head></html>`))
-	}))
-	defer srv.Close()
-
+	title := "Goroutine Page"
+	fetcher := &fakeFetcher{result: model.FetchResult{
+		FetchStatus: model.FetchStatusOK,
+		HTTPStatus:  200,
+		Title:       &title,
+	}}
 	metaRepo := &fakeMetaRepo{}
 	log, _ := zap.NewDevelopment()
 
@@ -386,6 +193,7 @@ func TestWorker_Submit_ProcessesJob(t *testing.T) {
 		URLRepo:  &fakeURLRepo{},
 		Cache:    cache.NewInMemoryCache(),
 		Notifier: &fakeNotifier{},
+		Fetcher:  fetcher,
 		Logger:   log,
 		Workers:  1,
 	})
@@ -396,7 +204,7 @@ func TestWorker_Submit_ProcessesJob(t *testing.T) {
 		URLID:      uuid.New(),
 		ShortCode:  "abc",
 		UserID:     uuid.New(),
-		TargetURL:  srv.URL,
+		TargetURL:  "https://example.com",
 	})
 
 	wkr.Stop()
@@ -408,26 +216,32 @@ func TestWorker_Submit_ProcessesJob(t *testing.T) {
 
 // ── fakes ────────────────────────────────────────────────────────────────────
 
+type fakeFetcher struct {
+	result model.FetchResult
+}
+
+func (f *fakeFetcher) Fetch(_ string) model.FetchResult { return f.result }
+
 type fakeMetaRepo struct {
 	mu           sync.Mutex
 	updateCalled int
 	lastStatus   string
 }
 
-func (f *fakeMetaRepo) Create(ctx context.Context, urlID uuid.UUID) (*model.URLMetadata, error) {
+func (f *fakeMetaRepo) Create(_ context.Context, urlID uuid.UUID) (*model.URLMetadata, error) {
 	return &model.URLMetadata{ID: uuid.New(), URLID: urlID, FetchStatus: model.FetchStatusPending}, nil
 }
-func (f *fakeMetaRepo) GetByURLID(ctx context.Context, urlID uuid.UUID) (*model.URLMetadata, error) {
+func (f *fakeMetaRepo) GetByURLID(_ context.Context, _ uuid.UUID) (*model.URLMetadata, error) {
 	return nil, nil
 }
-func (f *fakeMetaRepo) UpdateFetched(ctx context.Context, id uuid.UUID, result model.FetchResult) error {
+func (f *fakeMetaRepo) UpdateFetched(_ context.Context, _ uuid.UUID, result model.FetchResult) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.updateCalled++
 	f.lastStatus = string(result.FetchStatus)
 	return nil
 }
-func (f *fakeMetaRepo) ListPending(ctx context.Context, limit int) ([]*model.URLMetadata, error) {
+func (f *fakeMetaRepo) ListPending(_ context.Context, _ int) ([]*model.URLMetadata, error) {
 	return nil, nil
 }
 
@@ -436,32 +250,30 @@ type fakeURLRepo struct {
 	softDeleteByIDCalled bool
 }
 
-func (f *fakeURLRepo) Create(ctx context.Context, url *model.ShortURL) (*model.ShortURL, error) {
+func (f *fakeURLRepo) Create(_ context.Context, url *model.ShortURL) (*model.ShortURL, error) {
 	return url, nil
 }
-func (f *fakeURLRepo) ListByUser(ctx context.Context, userID uuid.UUID, limit, offset int) ([]model.ShortURL, error) {
+func (f *fakeURLRepo) ListByUser(_ context.Context, _ uuid.UUID, _, _ int) ([]model.ShortURL, error) {
 	return nil, nil
 }
-func (f *fakeURLRepo) ListByUserWithMeta(ctx context.Context, userID uuid.UUID, limit, offset int) ([]repository.ShortURLWithMeta, error) {
+func (f *fakeURLRepo) ListByUserWithMeta(_ context.Context, _ uuid.UUID, _, _ int) ([]repository.ShortURLWithMeta, error) {
 	return nil, nil
 }
-func (f *fakeURLRepo) CountByUser(ctx context.Context, userID uuid.UUID) (int, error) {
-	return 0, nil
-}
-func (f *fakeURLRepo) GetByID(ctx context.Context, id uuid.UUID) (*model.ShortURL, error) {
+func (f *fakeURLRepo) CountByUser(_ context.Context, _ uuid.UUID) (int, error) { return 0, nil }
+func (f *fakeURLRepo) GetByID(_ context.Context, _ uuid.UUID) (*model.ShortURL, error) {
 	return nil, nil
 }
-func (f *fakeURLRepo) GetByShortCode(ctx context.Context, shortCode string) (*model.ShortURL, error) {
+func (f *fakeURLRepo) GetByShortCode(_ context.Context, _ string) (*model.ShortURL, error) {
 	return nil, nil
 }
-func (f *fakeURLRepo) SoftDelete(ctx context.Context, id, userID uuid.UUID) error { return nil }
-func (f *fakeURLRepo) SoftDeleteByID(ctx context.Context, id uuid.UUID) error {
+func (f *fakeURLRepo) SoftDelete(_ context.Context, _, _ uuid.UUID) error { return nil }
+func (f *fakeURLRepo) SoftDeleteByID(_ context.Context, _ uuid.UUID) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.softDeleteByIDCalled = true
 	return nil
 }
-func (f *fakeURLRepo) IncrementClick(ctx context.Context, shortCode string) error { return nil }
+func (f *fakeURLRepo) IncrementClick(_ context.Context, _ string) error { return nil }
 
 type fakeNotifier struct {
 	mu           sync.Mutex

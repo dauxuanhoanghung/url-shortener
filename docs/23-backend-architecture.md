@@ -50,16 +50,20 @@ backend/
 │   ├── database/         pgxpool construction
 │   ├── cache/            Cache interface + Redis/in-memory drivers + Chain
 │   ├── router/           gin routes + middleware registration
-│   ├── middleware/       JWT, rate limit, recovery, CORS
+│   ├── middleware/       JWT, email-verification, rate-limit
 │   ├── handler/          HTTP layer
 │   ├── service/          business logic
 │   ├── repository/       SQL
-│   ├── model/            DB structs
+│   ├── model/            domain structs
 │   ├── dto/              API request/response contracts
-│   └── worker/           background jobs (planned)
+│   ├── event/            in-memory event bus + domain event types + handlers
+│   ├── sse/              SSE hub (user → channel map)
+│   ├── mailer/           Mailer interface + SMTP/sendmail/console transports
+│   └── worker/           background goroutine pools (metadata fetch, planned: cleanup)
 ├── pkg/
 │   ├── logger/           zap wrapper
-│   ├── validator/        (planned) shared validation helpers
+│   ├── ratelimit/        generic Limiter (no HTTP dep) — used by middleware + services
+│   ├── validator/        shared validation helpers
 │   └── utils/            short code, jwt helpers
 ├── migrations/           *.sql, applied in order, never modified
 └── tests/                integration tests
@@ -271,10 +275,15 @@ type Cache interface {
     Get(ctx context.Context, key string) ([]byte, error)
     Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
     Delete(ctx context.Context, key string) error
+    // Increment atomically increments key by 1, sets ttl on first creation,
+    // and returns the new value. Drivers that cannot safely implement
+    // distributed counters return ErrNotSupported.
+    Increment(ctx context.Context, key string, ttl time.Duration) (int64, error)
     Close() error
 }
 
-var ErrCacheMiss = errors.New("cache: miss")
+var ErrCacheMiss    = errors.New("cache: miss")
+var ErrNotSupported = errors.New("cache: operation not supported by this driver")
 ```
 
 Drivers translate their own "not found" into `ErrCacheMiss` so callers
@@ -291,6 +300,12 @@ default:
     // driver error — log, fall through to DB
 }
 ```
+
+`Increment` uses Redis `INCR` + `EXPIRE` in a pipeline — atomic at the
+command level. The in-memory driver returns `ErrNotSupported` because
+per-process counters break global rate limits across replicas.
+`Chain.Increment` delegates to `caches[0]` (the primary) only — it
+never fans out to in-memory replicas.
 
 Values are raw `[]byte`. Serialization (JSON, proto, plain string) is
 the caller's job. This keeps the cache package free of domain types.
@@ -387,7 +402,6 @@ the operation fail loudly if Redis is down.
 
 ### 4.8 Future Additions
 
-- `Increment(ctx, key)` for rate limiters
 - `SetNX(ctx, key, value, ttl)` for idempotency keys and distributed locks
 - metrics: hit/miss per inner cache (wrap `Chain` with a metrics decorator)
 
@@ -454,16 +468,55 @@ See [19-testing-strategy.md](19-testing-strategy.md) for coverage targets.
 
 ---
 
-## 9. Summary of Architectural Decisions
+## 9. Rate Limiting — `pkg/ratelimit`
 
-| Decision                      | Rationale                                                                  |
-| ----------------------------- | -------------------------------------------------------------------------- |
-| pgxpool instead of GORM       | transparent SQL, performance, learning goal                                |
-| sqlc across all repositories  | type-safe codegen without hiding SQL                                       |
-| Hand-written repo interfaces  | services decoupled from sqlc-generated code + adapter owns type conversion |
-| `Create` returns `*model.X`   | single round-trip, caller reuses DB-written row downstream                 |
-| Plans in a seeded table       | entitlement changes auditable via migration history                        |
-| `cache.Cache` interface       | swap drivers, mockable in tests                                            |
-| `Chain` fallback              | redirects survive Redis outages                                            |
-| Redis primary for cache       | shared across replicas, required for rate limiting / locks                 |
-| Constructor injection in main | small graph, no runtime DI framework                                       |
+Located in [backend/pkg/ratelimit/limiter.go](../backend/pkg/ratelimit/limiter.go).
+
+`pkg/ratelimit` is a thin generic wrapper over `cache.Cache.Increment`.
+It has no dependency on Gin or `net/http` so it can be used from
+middleware, services, or CLI tools.
+
+```go
+limiter := ratelimit.New(appCache)
+
+// anywhere — middleware, service, CLI
+allowed, err := limiter.Allow(ctx, ratelimit.Key("login", ip), 10, time.Minute)
+```
+
+`Key(namespace, identity)` builds canonical Redis key strings:
+
+```
+rate_limit:login:192.168.1.1
+rate_limit:/api/v1/urls:user:abc-123
+```
+
+The HTTP middleware in `internal/middleware/rate_limit_middleware.go` is
+a thin adapter: it resolves the identity (user ID if `AuthRequired` has
+already run, otherwise client IP), then calls `limiter.Allow()`.
+
+Why a separate `pkg/ratelimit` instead of embedding logic in middleware:
+
+- A future `LoginAttemptService` can take `*ratelimit.Limiter` as a
+  constructor dep and track failed logins without touching HTTP.
+- The `Key()` helper keeps key formats consistent across all callers.
+- The package is unit-testable with the in-memory driver (even though
+  in-memory returns `ErrNotSupported`, tests can swap in a fake cache).
+
+---
+
+## 10. Summary of Architectural Decisions
+
+| Decision                        | Rationale                                                                  |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| pgxpool instead of GORM         | transparent SQL, performance, learning goal                                |
+| sqlc across all repositories    | type-safe codegen without hiding SQL                                       |
+| Hand-written repo interfaces    | services decoupled from sqlc-generated code + adapter owns type conversion |
+| `Create` returns `*model.X`     | single round-trip, caller reuses DB-written row downstream                 |
+| Plans in a seeded table         | entitlement changes auditable via migration history                        |
+| `cache.Cache` interface         | swap drivers, mockable in tests                                            |
+| `Cache.Increment` on interface  | atomic distributed counter — Redis INCR, in-memory returns ErrNotSupported |
+| `Chain` fallback                | redirects survive Redis outages                                            |
+| `Chain.Increment` → primary only| per-replica counters break global rate limits                              |
+| Redis primary for cache         | shared across replicas, required for rate limiting / locks                 |
+| `pkg/ratelimit.Limiter`         | HTTP-agnostic counter usable from middleware, services, and CLI            |
+| Constructor injection in main   | small graph, no runtime DI framework                                       |

@@ -324,6 +324,7 @@ func TestURLService_Delete_Forbidden(t *testing.T) {
 // stubURLRepo satisfies repository.URLRepository.
 type stubURLRepo struct {
 	storedURL     *model.ShortURL
+	shortCodeURL  *model.ShortURL // set this for GetByShortCode to return a hit
 	count         int
 	conflictUntil int
 	createCalls   int
@@ -362,7 +363,10 @@ func (r *stubURLRepo) GetByID(_ context.Context, id uuid.UUID) (*model.ShortURL,
 	return nil, repository.ErrURLNotFound
 }
 
-func (r *stubURLRepo) GetByShortCode(_ context.Context, _ string) (*model.ShortURL, error) {
+func (r *stubURLRepo) GetByShortCode(_ context.Context, code string) (*model.ShortURL, error) {
+	if r.shortCodeURL != nil && r.shortCodeURL.ShortCode == code {
+		return r.shortCodeURL, nil
+	}
 	return nil, repository.ErrURLNotFound
 }
 
@@ -434,4 +438,13 @@ func (r *stubPlanRepo) List(_ context.Context) ([]model.Plan, error) {
 		return []model.Plan{*r.plan}, nil
 	}
 	return nil, nil
+}
+
+func (r *stubPlanRepo) UpdateFeatures(_ context.Context, _ string, features map[string]bool) (*model.Plan, error) {
+	if r.plan == nil {
+		return nil, repository.ErrPlanNotFound
+	}
+	out := *r.plan
+	out.Features = features
+	return &out, nil
 }

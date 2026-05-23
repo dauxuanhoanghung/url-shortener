@@ -36,6 +36,9 @@ function handleLogout() {
           <Button variant="ghost" size="sm" as-child>
             <router-link to="/dashboard">Dashboard</router-link>
           </Button>
+          <Button v-if="auth.isAdmin" variant="ghost" size="sm" as-child>
+            <router-link to="/admin">Admin</router-link>
+          </Button>
           <Separator orientation="vertical" class="h-5" />
           <span
             class="hidden text-xs text-muted-foreground sm:block max-w-40 truncate"

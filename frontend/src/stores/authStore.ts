@@ -8,6 +8,7 @@ export const useAuthStore = defineStore('auth', () => {
   const accessToken = ref<string | null>(null)
 
   const isAuthenticated = computed(() => !!accessToken.value)
+  const isAdmin = computed(() => user.value?.role === 'admin')
 
   function init() {
     const storedToken = localStorage.getItem('access_token')
@@ -61,6 +62,7 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     accessToken,
     isAuthenticated,
+    isAdmin,
     init,
     register,
     login,

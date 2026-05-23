@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { urlService } from '../services/urlService'
 import { sseService } from '../services/sseService'
-import type { ShortURL, SSEUrlDeletedEvent } from '../types'
+import type { ShortURL, SSEUrlDeletedEvent, SSEMetadataUpdatedEvent } from '../types'
 
 export interface DeletedNotification {
   id: string
@@ -78,9 +78,22 @@ export const useUrlStore = defineStore('url', () => {
     deletedNotifications.value = deletedNotifications.value.filter((n) => n.id !== id)
   }
 
+  function handleMetadataUpdated(event: SSEMetadataUpdatedEvent) {
+    const url = urls.value.find((u) => u.id === event.url_id)
+    if (!url) return
+    url.metadata = {
+      title: event.title ?? null,
+      description: event.description ?? null,
+      og_image: event.og_image ?? null,
+      favicon_url: event.favicon_url ?? null,
+      fetch_status: event.fetch_status,
+    }
+  }
+
   function startSSE(token: string) {
     sseService.connect(token)
     sseService.onUrlDeleted(handleUrlDeleted)
+    sseService.onMetadataUpdated(handleMetadataUpdated)
   }
 
   function stopSSE() {
@@ -97,6 +110,7 @@ export const useUrlStore = defineStore('url', () => {
     create,
     remove,
     handleUrlDeleted,
+    handleMetadataUpdated,
     dismissNotification,
     startSSE,
     stopSSE,

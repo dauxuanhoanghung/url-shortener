@@ -76,7 +76,7 @@ already in place).
 
 1. Parse metadata from body.
 2. `UPDATE url_metadata SET title=…, fetch_status='ok', fetched_at=NOW()`.
-3. No notification — the card in the UI refreshes on next `GET /urls`.
+3. Publish SSE event `metadata_updated` to the owning user's channel (see §6.4).
 
 ### 4.3 Failure path (`4xx` or network error)
 
@@ -102,25 +102,33 @@ recorded, no SSE event. A future retry job (§7) can re-check.
 
 ### 5.1 Location
 
-`backend/internal/worker/metadata_worker.go`
+`backend/internal/worker/metadata_worker.go` — thin orchestrator: dequeues jobs, calls the fetcher, updates the DB, fires SSE.
+
+`backend/internal/service/metadata_fetcher.go` — `MetadataFetcher` service: HTTP fetch + HTML parsing, no DB or SSE concerns.
 
 Follows the existing `worker/` package mentioned in [23-backend-architecture.md](23-backend-architecture.md).
 
-### 5.2 Interface
+### 5.2 Interfaces
 
 ```go
-// MetadataWorker submits metadata-fetch jobs and runs the processing loop.
+// MetadataFetcher (internal/service) — fetches and parses a URL.
+type MetadataFetcher interface {
+    Fetch(targetURL string) model.FetchResult
+}
+
+// MetadataWorker (internal/worker) — job queue orchestrator.
 type MetadataWorker interface {
-    Submit(ctx context.Context, job MetadataJob)
+    Submit(job MetadataJob)
     Start(ctx context.Context)
     Stop()
 }
 
 type MetadataJob struct {
-    URLID     uuid.UUID
-    ShortCode string
-    UserID    uuid.UUID
-    TargetURL string
+    MetadataID uuid.UUID
+    URLID      uuid.UUID
+    ShortCode  string
+    UserID     uuid.UUID
+    TargetURL  string
 }
 ```
 
@@ -202,27 +210,25 @@ type SSEEvent struct {
 `SSEHub` in `internal/sse/hub.go` implements `Notifier` and manages the
 client registry with a mutex-guarded map of `userID → []chan SSEEvent`.
 
-### 6.4 Event payload
+### 6.4 Event payloads
 
-```json
-{
-  "event": "url_deleted",
-  "data": {
-    "url_id": "<uuid>",
-    "short_code": "abc123",
-    "reason": "origin_unreachable",
-    "http_status": 404
-  }
-}
-```
-
-Wire format (SSE):
+**`url_deleted`** — fired on 4xx / network failure:
 
 ```
 event: url_deleted
 data: {"url_id":"...","short_code":"abc123","reason":"origin_unreachable","http_status":404}
 
 ```
+
+**`metadata_updated`** — fired on successful 2xx fetch:
+
+```
+event: metadata_updated
+data: {"url_id":"...","short_code":"abc123","title":"Example Domain","description":"...","og_image":"...","favicon_url":"...","fetch_status":"ok"}
+
+```
+
+The frontend patches the URL card in the store immediately on receipt — no `GET /urls` poll needed.
 
 ### 6.5 Client disconnect
 
@@ -306,20 +312,26 @@ Adapter in `internal/repository/url_metadata_repository.go`.
 ## 10. Sequence Diagram
 
 ```text
-Client          Handler        URLService      MetadataWorker     SSEHub
-  │                │                │                │               │
-  │──POST /urls───►│                │                │               │
-  │                │──Create───────►│                │               │
-  │                │                │──Submit───────►│               │
-  │                │◄──URLResponse──│                │               │
-  │◄──201──────────│                │                │               │
-  │                │                │    ┌───fetch───►origin         │
-  │                │                │    │   (async)                 │
-  │                │                │    │◄──404──────               │
-  │                │                │    │                           │
-  │                │                │    │──soft-delete url          │
-  │                │                │    │──Notify(userID)──────────►│
-  │◄──SSE event────│────────────────│────│───────────────────────────│
+Client          Handler        URLService      MetadataWorker  MetadataFetcher  SSEHub
+  │                │                │                │               │            │
+  │──POST /urls───►│                │                │               │            │
+  │                │──Create───────►│                │               │            │
+  │                │                │──Submit───────►│               │            │
+  │                │◄──URLResponse──│                │               │            │
+  │◄──201──────────│                │                │               │            │
+  │                │                │    ┌───Fetch(url)─────────────►│            │
+  │                │                │    │   (async)  │◄──FetchResult─            │
+  │                │                │    │            │                           │
+  │                │    on 2xx:     │    │            │                           │
+  │                │                │    │──UpdateFetched(ok)        │            │
+  │                │                │    │──Notify(metadata_updated)────────────►│
+  │◄──SSE event────│────────────────│────│────────────│──────────────────────────│
+  │  (card updates)│                │    │            │                           │
+  │                │    on 4xx:     │    │            │                           │
+  │                │                │    │──soft-delete url          │            │
+  │                │                │    │──Notify(url_deleted)─────────────────►│
+  │◄──SSE event────│────────────────│────│────────────│──────────────────────────│
+  │  (URL removed) │                │    │            │                           │
 ```
 
 ---
@@ -333,7 +345,8 @@ Client          Handler        URLService      MetadataWorker     SSEHub
 | 3    | `model.URLMetadata`, `model.FetchResult`                                    |
 | 4    | `URLMetadataRepository` interface + adapter                                 |
 | 5    | `internal/sse/` — `SSEHub`, `Notifier` interface, `GET /events` handler     |
-| 6    | `internal/worker/metadata_worker.go` — `MetadataWorker`, fetch logic        |
+| 6    | `internal/service/metadata_fetcher.go` — `MetadataFetcher` interface + impl  |
+| 6b   | `internal/worker/metadata_worker.go` — thin orchestrator, depends on fetcher |
 | 7    | `URLService.Create` — call `worker.Submit` after persisting                 |
 | 8    | `GET /urls` response DTO — add `metadata` field (join query)                |
 | 9    | Wire everything in `cmd/api/main.go`                                        |

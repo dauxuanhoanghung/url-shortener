@@ -20,3 +20,18 @@ WHERE id = $1 AND email_verified_at IS NULL;
 -- name: UpdateUserPassword :exec
 UPDATE users SET password_hash = $2, updated_at = NOW()
 WHERE id = $1;
+
+-- name: ListUsersForAdmin :many
+SELECT u.id, u.email, u.role, u.email_verified_at, u.disabled_at,
+       u.created_at, u.updated_at, up.plan_code
+FROM users u
+LEFT JOIN user_plans up ON up.user_id = u.id
+ORDER BY u.created_at DESC
+LIMIT $1 OFFSET $2;
+
+-- name: CountUsersForAdmin :one
+SELECT COUNT(*) FROM users;
+
+-- name: SetUserDisabled :exec
+UPDATE users SET disabled_at = $2, updated_at = NOW()
+WHERE id = $1;

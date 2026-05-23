@@ -47,6 +47,16 @@ export interface SSEUrlDeletedEvent {
   http_status: number
 }
 
+export interface SSEMetadataUpdatedEvent {
+  url_id: string
+  short_code: string
+  title?: string | null
+  description?: string | null
+  og_image?: string | null
+  favicon_url?: string | null
+  fetch_status: 'ok'
+}
+
 export interface ListURLResponse {
   urls: ShortURL[]
   total: number
@@ -62,4 +72,36 @@ export interface Plan {
   analytics_retention_days: number
   api_rate_limit_per_min: number | null
   features: Record<string, boolean>
+}
+
+export interface AdminUser {
+  id: string
+  email: string
+  role: 'user' | 'admin'
+  plan_code: string
+  email_verified: boolean
+  disabled: boolean
+  disabled_at?: string | null
+  created_at: string
+}
+
+export interface AdminUserList {
+  users: AdminUser[]
+  total: number
+}
+
+export interface AdminAuditEntry {
+  id: string
+  actor_id?: string | null
+  action: string
+  target_type?: string
+  target_id?: string
+  before?: Record<string, any>
+  after?: Record<string, any>
+  created_at: string
+}
+
+export interface AdminAuditList {
+  entries: AdminAuditEntry[]
+  total: number
 }

@@ -15,12 +15,20 @@ import (
 
 var ErrUserNotFound = errors.New("user not found")
 
+// UserRepository covers regular user CRUD. Admin-only queries (listing all
+// users, disabling, etc.) live on the same interface but are implemented in
+// user_admin_repository.go to keep this file focused on the per-user path.
 type UserRepository interface {
 	Create(ctx context.Context, user *model.User) (*model.User, error)
 	GetByEmail(ctx context.Context, email string) (*model.User, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*model.User, error)
 	MarkEmailVerified(ctx context.Context, id uuid.UUID) error
 	UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error
+
+	// Admin operations — implemented in user_admin_repository.go.
+	ListForAdmin(ctx context.Context, limit, offset int32) ([]model.UserWithPlan, error)
+	CountForAdmin(ctx context.Context) (int64, error)
+	SetDisabled(ctx context.Context, id uuid.UUID, disabledAt *time.Time) error
 }
 
 type userRepository struct {
@@ -44,16 +52,7 @@ func (r *userRepository) Create(ctx context.Context, user *model.User) (*model.U
 	if err != nil {
 		return nil, err
 	}
-	return &model.User{
-		ID:              row.ID,
-		Email:           row.Email,
-		PasswordHash:    row.PasswordHash,
-		Role:            row.Role,
-		EmailVerifiedAt: timeFromPg(row.EmailVerifiedAt),
-		DisabledAt:      timeFromPg(row.DisabledAt),
-		CreatedAt:       row.CreatedAt.Time,
-		UpdatedAt:       row.UpdatedAt.Time,
-	}, nil
+	return userFromCreate(row), nil
 }
 
 func (r *userRepository) GetByEmail(ctx context.Context, email string) (*model.User, error) {
@@ -64,16 +63,7 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*model.U
 	if err != nil {
 		return nil, err
 	}
-	return &model.User{
-		ID:              row.ID,
-		Email:           row.Email,
-		PasswordHash:    row.PasswordHash,
-		Role:            row.Role,
-		EmailVerifiedAt: timeFromPg(row.EmailVerifiedAt),
-		DisabledAt:      timeFromPg(row.DisabledAt),
-		CreatedAt:       row.CreatedAt.Time,
-		UpdatedAt:       row.UpdatedAt.Time,
-	}, nil
+	return userFromGetByEmail(row), nil
 }
 
 func (r *userRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.User, error) {
@@ -84,16 +74,7 @@ func (r *userRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.User
 	if err != nil {
 		return nil, err
 	}
-	return &model.User{
-		ID:              row.ID,
-		Email:           row.Email,
-		PasswordHash:    row.PasswordHash,
-		Role:            row.Role,
-		EmailVerifiedAt: timeFromPg(row.EmailVerifiedAt),
-		DisabledAt:      timeFromPg(row.DisabledAt),
-		CreatedAt:       row.CreatedAt.Time,
-		UpdatedAt:       row.UpdatedAt.Time,
-	}, nil
+	return userFromGetByID(row), nil
 }
 
 func (r *userRepository) MarkEmailVerified(ctx context.Context, id uuid.UUID) error {
@@ -106,6 +87,54 @@ func (r *userRepository) UpdatePassword(ctx context.Context, id uuid.UUID, passw
 		PasswordHash: passwordHash,
 	})
 }
+
+// --- row mappers ----------------------------------------------------------
+//
+// sqlc generates a distinct struct per query so we can't share one signature,
+// but the fields line up — each mapper is just a struct-to-struct projection.
+// Keeping them next to the SELECT-shaped methods makes regeneration churn
+// obvious: if sqlc renames a field, the compiler points here.
+
+func userFromCreate(row sqlc.CreateUserRow) *model.User {
+	return &model.User{
+		ID:              row.ID,
+		Email:           row.Email,
+		PasswordHash:    row.PasswordHash,
+		Role:            row.Role,
+		EmailVerifiedAt: timeFromPg(row.EmailVerifiedAt),
+		DisabledAt:      timeFromPg(row.DisabledAt),
+		CreatedAt:       row.CreatedAt.Time,
+		UpdatedAt:       row.UpdatedAt.Time,
+	}
+}
+
+func userFromGetByEmail(row sqlc.GetUserByEmailRow) *model.User {
+	return &model.User{
+		ID:              row.ID,
+		Email:           row.Email,
+		PasswordHash:    row.PasswordHash,
+		Role:            row.Role,
+		EmailVerifiedAt: timeFromPg(row.EmailVerifiedAt),
+		DisabledAt:      timeFromPg(row.DisabledAt),
+		CreatedAt:       row.CreatedAt.Time,
+		UpdatedAt:       row.UpdatedAt.Time,
+	}
+}
+
+func userFromGetByID(row sqlc.GetUserByIDRow) *model.User {
+	return &model.User{
+		ID:              row.ID,
+		Email:           row.Email,
+		PasswordHash:    row.PasswordHash,
+		Role:            row.Role,
+		EmailVerifiedAt: timeFromPg(row.EmailVerifiedAt),
+		DisabledAt:      timeFromPg(row.DisabledAt),
+		CreatedAt:       row.CreatedAt.Time,
+		UpdatedAt:       row.UpdatedAt.Time,
+	}
+}
+
+// --- shared pgtype helpers -------------------------------------------------
 
 func nullableTime(t *time.Time) pgtype.Timestamp {
 	if t == nil {
