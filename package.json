@@ -1,0 +1,11 @@
+{
+  "name": "url-shortener",
+  "private": true,
+  "description": "Root package — exists only to install husky for git hooks. Frontend tooling lives in frontend/.",
+  "scripts": {
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
+}

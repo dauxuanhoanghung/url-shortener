@@ -21,6 +21,8 @@ Related: [16-frontend-folder-structure.md](16-frontend-folder-structure.md)
 | **Prettier**          | 3.x          | Code formatter (single source of truth for style)          | https://prettier.io                                  |
 | **@ianvs/prettier-plugin-sort-imports** | 4.x | Deterministic import order, group separation             | https://github.com/IanVS/prettier-plugin-sort-imports |
 | **prettier-plugin-tailwindcss** | 0.6.5 | Sorts Tailwind class lists into the canonical order        | https://github.com/tailwindlabs/prettier-plugin-tailwindcss |
+| **husky**             | 9.x          | Git hook installer (lives at repo root, not in frontend/)  | https://typicode.github.io/husky                     |
+| **lint-staged**       | 17.x         | Runs commands on staged files only (frontend/ scoped)      | https://github.com/lint-staged/lint-staged           |
 
 **Not in use**: Vuetify, Quasar, PrimeVue, Nuxt UI (Nuxt-specific — requires Nuxt framework), Vuelidate, FormKit.
 
@@ -232,8 +234,54 @@ print width 100, 2-space indent.
 
 ```bash
 npm run format        # write changes
-npm run format:check  # CI/pre-commit: exit non-zero if any file needs reformatting
+npm run format:check  # CI: exit non-zero if any file needs reformatting
 ```
+
+### Pre-commit hook (husky + lint-staged)
+
+Formatting is enforced at commit time so unformatted code never reaches the
+branch. The wiring lives at the **repo root** because git hooks are
+repo-scoped, not folder-scoped.
+
+| File                                                | Role                                                            |
+| --------------------------------------------------- | --------------------------------------------------------------- |
+| [`/package.json`](../package.json)                  | Minimal — only declares `husky` as a devDep + the `prepare` script. Don't add other JS tooling here. |
+| [`/.husky/pre-commit`](../.husky/pre-commit)        | One-liner: `cd frontend && npx lint-staged`.                    |
+| [`frontend/package.json`](../frontend/package.json) | `lint-staged` devDep + the `lint-staged` config block.          |
+
+**lint-staged config** (in `frontend/package.json`):
+
+```json
+"lint-staged": {
+  "*.{ts,vue,js,json,css,md}": "prettier --write"
+}
+```
+
+**What happens on `git commit`**:
+
+1. Husky fires `.husky/pre-commit`.
+2. The hook `cd`s into `frontend/` and runs `npx lint-staged`.
+3. lint-staged enumerates staged files **under `frontend/`** only — backend
+   changes are not touched.
+4. For each match, it runs `prettier --write`. Prettier honours
+   `.prettierignore`, so `src/components/ui/` is skipped automatically.
+5. Reformatted files are re-staged; the commit proceeds.
+
+**First-time setup** (new clone, or after pulling these changes):
+
+```bash
+# from the repo root
+npm install   # installs husky and runs `prepare`, which registers the hook
+# from frontend/
+npm install   # installs lint-staged
+```
+
+The `prepare` script is what writes `core.hooksPath` so git knows to look in
+`.husky/`. If `git config core.hooksPath` returns nothing after install,
+re-run `npm install` at the root.
+
+**Bypassing**: avoid `git commit --no-verify`. If the hook is wrong, fix the
+hook. The only legitimate use is when staging a hook fix itself.
 
 ### Rules
 

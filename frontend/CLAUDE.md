@@ -24,6 +24,7 @@ Authoritative docs:
 | Icons     | `lucide-vue-next`                                                                        |
 | Forms     | vee-validate + zod (via `@vee-validate/zod`)                                             |
 | Format    | Prettier 3 + `@ianvs/prettier-plugin-sort-imports` + `prettier-plugin-tailwindcss@0.6.5` |
+| Git hooks | husky 9 (repo root) + lint-staged 17 (frontend) → pre-commit Prettier on staged files    |
 
 Not in use and not wanted: ESLint, Stylelint, Vuelidate, FormKit, GraphQL,
 SWR/TanStack Query, Tailwind v3, Options API.
@@ -167,8 +168,14 @@ for canonical examples.
 - Imports are auto-grouped by `@ianvs/prettier-plugin-sort-imports`
   (builtins → third-party → `@/layouts` → `@/views` → `@/components` → …).
   See doc 26 for the full order.
-- Run `npm run format` before committing significant changes. CI / pre-commit
-  hooks should call `npm run format:check`.
+- A husky `pre-commit` hook runs `lint-staged` → `prettier --write` on staged
+  frontend files. You normally don't need to run `npm run format` manually —
+  but it's fine to do so to format the whole tree at once.
+- Don't bypass the hook with `git commit --no-verify` to "save time" on a
+  formatting error — fix the code instead. If the hook itself is broken,
+  fix the hook.
+- First-time clone setup: `npm install` at the repo root (registers the
+  hook), then `npm install` in `frontend/`. See doc 26 → Pre-commit hook.
 
 ---
 
