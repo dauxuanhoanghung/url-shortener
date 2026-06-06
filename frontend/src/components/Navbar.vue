@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { useRouter } from "vue-router";
+
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useAuthStore } from "@/stores/authStore";
-import { useRouter } from "vue-router";
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -15,13 +16,10 @@ function handleLogout() {
 
 <template>
   <header
-    class="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60"
+    class="border-border bg-background/95 supports-backdrop-filter:bg-background/60 sticky top-0 z-50 w-full border-b backdrop-blur"
   >
     <div class="mx-auto flex h-14 max-w-7xl items-center gap-4 px-4 md:px-6">
-      <router-link
-        to="/"
-        class="flex items-center font-bold text-lg text-primary shrink-0"
-      >
+      <router-link to="/" class="text-primary flex shrink-0 items-center text-lg font-bold">
         Snip.ly
       </router-link>
 
@@ -40,14 +38,10 @@ function handleLogout() {
             <router-link to="/admin">Admin</router-link>
           </Button>
           <Separator orientation="vertical" class="h-5" />
-          <span
-            class="hidden text-xs text-muted-foreground sm:block max-w-40 truncate"
-          >
+          <span class="text-muted-foreground hidden max-w-40 truncate text-xs sm:block">
             {{ auth.user?.email }}
           </span>
-          <Button variant="outline" size="sm" @click="handleLogout"
-            >Log out</Button
-          >
+          <Button variant="outline" size="sm" @click="handleLogout">Log out</Button>
         </template>
         <template v-else>
           <Button variant="ghost" size="sm" as-child>

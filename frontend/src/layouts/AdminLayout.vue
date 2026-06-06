@@ -16,7 +16,7 @@ const auth = useAuthStore();
             {{ auth.user?.email }}
           </Badge>
         </div>
-        <p class="mt-1 text-sm text-muted-foreground">
+        <p class="text-muted-foreground mt-1 text-sm">
           Operator-only tooling. All write actions are recorded in the audit log.
         </p>
       </div>
@@ -31,7 +31,7 @@ const auth = useAuthStore();
         ]"
         :key="tab.to"
         :to="tab.to"
-        class="rounded-md px-3 py-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        class="text-muted-foreground hover:bg-accent hover:text-foreground rounded-md px-3 py-1.5 transition-colors"
         active-class="bg-accent text-foreground font-medium"
       >
         {{ tab.label }}

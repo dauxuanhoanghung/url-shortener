@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import { onMounted } from "vue";
+
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAdminStore } from "@/stores/adminStore";
-import { onMounted } from "vue";
 
 const store = useAdminStore();
 
@@ -32,11 +33,11 @@ function formatJson(obj: Record<string, any> | undefined) {
       <AlertDescription>{{ store.error }}</AlertDescription>
     </Alert>
 
-    <p v-if="store.loading" class="text-sm text-muted-foreground">Loading…</p>
+    <p v-if="store.loading" class="text-muted-foreground text-sm">Loading…</p>
 
     <div v-else class="overflow-x-auto rounded-md border">
       <table class="w-full text-sm">
-        <thead class="border-b bg-muted/40 text-left">
+        <thead class="bg-muted/40 border-b text-left">
           <tr>
             <th class="px-3 py-2 font-medium">When</th>
             <th class="px-3 py-2 font-medium">Action</th>
@@ -47,23 +48,27 @@ function formatJson(obj: Record<string, any> | undefined) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="e in store.auditEntries" :key="e.id" class="border-b last:border-0 align-top">
-            <td class="px-3 py-2 text-muted-foreground whitespace-nowrap">{{ formatDate(e.created_at) }}</td>
+          <tr v-for="e in store.auditEntries" :key="e.id" class="border-b align-top last:border-0">
+            <td class="text-muted-foreground whitespace-nowrap px-3 py-2">
+              {{ formatDate(e.created_at) }}
+            </td>
             <td class="px-3 py-2">
               <Badge variant="outline">{{ e.action }}</Badge>
             </td>
             <td class="px-3 py-2">
               <span class="text-muted-foreground">{{ e.target_type }}</span>
-              <div class="text-xs font-mono">{{ e.target_id }}</div>
+              <div class="font-mono text-xs">{{ e.target_id }}</div>
             </td>
-            <td class="px-3 py-2 text-xs font-mono">
+            <td class="px-3 py-2 font-mono text-xs">
               {{ e.actor_id ?? "(cli)" }}
             </td>
-            <td class="px-3 py-2 text-xs text-muted-foreground">{{ formatJson(e.before) }}</td>
+            <td class="text-muted-foreground px-3 py-2 text-xs">{{ formatJson(e.before) }}</td>
             <td class="px-3 py-2 text-xs">{{ formatJson(e.after) }}</td>
           </tr>
           <tr v-if="store.auditEntries.length === 0">
-            <td colspan="6" class="px-3 py-6 text-center text-muted-foreground">No audit entries yet.</td>
+            <td colspan="6" class="text-muted-foreground px-3 py-6 text-center">
+              No audit entries yet.
+            </td>
           </tr>
         </tbody>
       </table>

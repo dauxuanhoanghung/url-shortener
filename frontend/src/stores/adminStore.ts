@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
+
 import { adminService } from "../services/adminService";
 import type { AdminAuditEntry, AdminUser } from "../types";
 
@@ -23,8 +24,7 @@ export const useAdminStore = defineStore("admin", () => {
         error.value = resp.error?.message ?? "Failed to load users";
       }
     } catch (err: any) {
-      error.value =
-        err.response?.data?.error?.message ?? "Failed to load users";
+      error.value = err.response?.data?.error?.message ?? "Failed to load users";
     } finally {
       loading.value = false;
     }
@@ -43,8 +43,7 @@ export const useAdminStore = defineStore("admin", () => {
         error.value = resp.error?.message ?? "Failed to update user";
       }
     } catch (err: any) {
-      error.value =
-        err.response?.data?.error?.message ?? "Failed to update user";
+      error.value = err.response?.data?.error?.message ?? "Failed to update user";
     }
   }
 
@@ -60,8 +59,7 @@ export const useAdminStore = defineStore("admin", () => {
         error.value = resp.error?.message ?? "Failed to load audit log";
       }
     } catch (err: any) {
-      error.value =
-        err.response?.data?.error?.message ?? "Failed to load audit log";
+      error.value = err.response?.data?.error?.message ?? "Failed to load audit log";
     } finally {
       loading.value = false;
     }

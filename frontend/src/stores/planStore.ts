@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
+
 import { planService } from "../services/planService";
 import type { Plan } from "../types";
 
@@ -20,8 +21,7 @@ export const usePlanStore = defineStore("plans", () => {
         error.value = resp.error?.message ?? "Failed to load plans";
       }
     } catch (err: any) {
-      error.value =
-        err.response?.data?.error?.message ?? "Failed to load plans";
+      error.value = err.response?.data?.error?.message ?? "Failed to load plans";
     } finally {
       loading.value = false;
     }

@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { onMounted } from "vue";
+
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAdminStore } from "@/stores/adminStore";
 import { useAuthStore } from "@/stores/authStore";
-import { onMounted } from "vue";
 
 const store = useAdminStore();
 const auth = useAuthStore();
@@ -33,11 +34,11 @@ function formatDate(s: string) {
       <AlertDescription>{{ store.error }}</AlertDescription>
     </Alert>
 
-    <p v-if="store.loading" class="text-sm text-muted-foreground">Loading…</p>
+    <p v-if="store.loading" class="text-muted-foreground text-sm">Loading…</p>
 
     <div v-else class="overflow-x-auto rounded-md border">
       <table class="w-full text-sm">
-        <thead class="border-b bg-muted/40 text-left">
+        <thead class="bg-muted/40 border-b text-left">
           <tr>
             <th class="px-3 py-2 font-medium">Email</th>
             <th class="px-3 py-2 font-medium">Role</th>
@@ -45,11 +46,11 @@ function formatDate(s: string) {
             <th class="px-3 py-2 font-medium">Verified</th>
             <th class="px-3 py-2 font-medium">Status</th>
             <th class="px-3 py-2 font-medium">Created</th>
-            <th class="px-3 py-2 font-medium text-right">Actions</th>
+            <th class="px-3 py-2 text-right font-medium">Actions</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="u in store.users" :key="u.id" class="border-b last:border-0 hover:bg-muted/20">
+          <tr v-for="u in store.users" :key="u.id" class="hover:bg-muted/20 border-b last:border-0">
             <td class="px-3 py-2">{{ u.email }}</td>
             <td class="px-3 py-2">
               <Badge :variant="u.role === 'admin' ? 'default' : 'outline'">{{ u.role }}</Badge>
@@ -61,9 +62,11 @@ function formatDate(s: string) {
             </td>
             <td class="px-3 py-2">
               <Badge v-if="u.disabled" variant="destructive">disabled</Badge>
-              <Badge v-else variant="outline" class="border-emerald-500 text-emerald-700">active</Badge>
+              <Badge v-else variant="outline" class="border-emerald-500 text-emerald-700"
+                >active</Badge
+              >
             </td>
-            <td class="px-3 py-2 text-muted-foreground">{{ formatDate(u.created_at) }}</td>
+            <td class="text-muted-foreground px-3 py-2">{{ formatDate(u.created_at) }}</td>
             <td class="px-3 py-2 text-right">
               <Button
                 size="sm"
@@ -76,7 +79,7 @@ function formatDate(s: string) {
             </td>
           </tr>
           <tr v-if="store.users.length === 0">
-            <td colspan="7" class="px-3 py-6 text-center text-muted-foreground">No users.</td>
+            <td colspan="7" class="text-muted-foreground px-3 py-6 text-center">No users.</td>
           </tr>
         </tbody>
       </table>

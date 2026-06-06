@@ -1,26 +1,27 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useUrlStore } from '@/stores/urlStore'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { ref } from "vue";
 
-const store = useUrlStore()
-const originalUrl = ref('')
-const submitting = ref(false)
-const localError = ref('')
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useUrlStore } from "@/stores/urlStore";
+
+const store = useUrlStore();
+const originalUrl = ref("");
+const submitting = ref(false);
+const localError = ref("");
 
 async function handleSubmit() {
-  localError.value = ''
-  if (!originalUrl.value.trim()) return
+  localError.value = "";
+  if (!originalUrl.value.trim()) return;
 
-  submitting.value = true
+  submitting.value = true;
   try {
-    await store.create(originalUrl.value.trim())
-    originalUrl.value = ''
+    await store.create(originalUrl.value.trim());
+    originalUrl.value = "";
   } catch {
-    localError.value = store.error
+    localError.value = store.error;
   } finally {
-    submitting.value = false
+    submitting.value = false;
   }
 }
 </script>
@@ -37,9 +38,9 @@ async function handleSubmit() {
         class="flex-1"
       />
       <Button type="submit" :disabled="submitting" class="shrink-0">
-        {{ submitting ? 'Shortening…' : 'Shorten' }}
+        {{ submitting ? "Shortening…" : "Shorten" }}
       </Button>
     </div>
-    <p v-if="localError" class="mt-2 text-xs text-destructive">{{ localError }}</p>
+    <p v-if="localError" class="text-destructive mt-2 text-xs">{{ localError }}</p>
   </form>
 </template>

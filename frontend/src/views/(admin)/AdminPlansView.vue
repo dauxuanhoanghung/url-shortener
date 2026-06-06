@@ -1,16 +1,12 @@
 <script setup lang="ts">
+import { onMounted, reactive, ref } from "vue";
+
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { adminService } from "@/services/adminService";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { usePlanStore } from "@/stores/planStore";
+import { adminService } from "@/services/adminService";
 import type { Plan } from "@/types";
-import { onMounted, reactive, ref } from "vue";
 
 const planStore = usePlanStore();
 const saving = ref<Record<string, boolean>>({});
@@ -44,10 +40,7 @@ async function save(plan: Plan) {
   error.value = "";
   success.value = "";
   try {
-    const resp = await adminService.updatePlanFeatures(
-      plan.code,
-      drafts[plan.code]
-    );
+    const resp = await adminService.updatePlanFeatures(plan.code, drafts[plan.code]);
     if (resp.success && resp.data) {
       // Update the cached plan in the shared store so other views see the change.
       const idx = planStore.plans.findIndex((p) => p.code === plan.code);
@@ -57,8 +50,7 @@ async function save(plan: Plan) {
       error.value = resp.error?.message ?? "Failed to update plan";
     }
   } catch (err: any) {
-    error.value =
-      err.response?.data?.error?.message ?? "Failed to update plan";
+    error.value = err.response?.data?.error?.message ?? "Failed to update plan";
   } finally {
     saving.value[plan.code] = false;
   }
@@ -68,9 +60,9 @@ async function save(plan: Plan) {
 <template>
   <section>
     <h2 class="mb-4 text-lg font-semibold">Plan feature flags</h2>
-    <p class="mb-4 text-sm text-muted-foreground">
-      Toggle boolean feature flags per plan. Pricing, URL limits, and rate
-      limits are migration-only and not editable here. See
+    <p class="text-muted-foreground mb-4 text-sm">
+      Toggle boolean feature flags per plan. Pricing, URL limits, and rate limits are migration-only
+      and not editable here. See
       <code>docs/25-admin-accounts.md §4</code>.
     </p>
 
@@ -86,7 +78,7 @@ async function save(plan: Plan) {
         <CardHeader>
           <CardTitle class="flex items-center justify-between">
             <span>{{ plan.name }}</span>
-            <span class="text-sm font-normal text-muted-foreground">
+            <span class="text-muted-foreground text-sm font-normal">
               {{ plan.code }}
             </span>
           </CardTitle>
@@ -109,12 +101,7 @@ async function save(plan: Plan) {
               />
             </li>
           </ul>
-          <Button
-            class="mt-4 w-full"
-            size="sm"
-            :disabled="saving[plan.code]"
-            @click="save(plan)"
-          >
+          <Button class="mt-4 w-full" size="sm" :disabled="saving[plan.code]" @click="save(plan)">
             {{ saving[plan.code] ? "Saving…" : "Save" }}
           </Button>
         </CardContent>

@@ -1,69 +1,70 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { useAuthStore } from '@/stores/authStore'
-import { useUrlStore } from '@/stores/urlStore'
-import { useSSE } from '@/composables/useSSE'
-import { authService } from '@/services/authService'
-import UrlForm from '@/components/UrlForm.vue'
-import UrlList from '@/components/UrlList.vue'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import type { SSEUrlDeletedEvent, SSEMetadataUpdatedEvent } from '@/types'
+import { onMounted, ref } from "vue";
 
-const auth = useAuthStore()
-const store = useUrlStore()
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import UrlForm from "@/components/UrlForm.vue";
+import UrlList from "@/components/UrlList.vue";
+import { useSSE } from "@/composables/useSSE";
+import { useAuthStore } from "@/stores/authStore";
+import { useUrlStore } from "@/stores/urlStore";
+import { authService } from "@/services/authService";
+import type { SSEMetadataUpdatedEvent, SSEUrlDeletedEvent } from "@/types";
 
-const resendStatus = ref<'idle' | 'sending' | 'sent' | 'error'>('idle')
-const resendMessage = ref('')
+const auth = useAuthStore();
+const store = useUrlStore();
+
+const resendStatus = ref<"idle" | "sending" | "sent" | "error">("idle");
+const resendMessage = ref("");
 
 async function handleResend() {
-  resendStatus.value = 'sending'
-  resendMessage.value = ''
+  resendStatus.value = "sending";
+  resendMessage.value = "";
   try {
-    const resp = await authService.resendVerification()
+    const resp = await authService.resendVerification();
     if (resp.success) {
-      resendStatus.value = 'sent'
+      resendStatus.value = "sent";
     } else {
-      resendStatus.value = 'error'
-      resendMessage.value = resp.error?.message ?? 'Could not resend verification email.'
+      resendStatus.value = "error";
+      resendMessage.value = resp.error?.message ?? "Could not resend verification email.";
     }
   } catch (err: any) {
-    const code = err.response?.data?.error?.code
-    if (code === 'ALREADY_VERIFIED') {
-      auth.markEmailVerified()
-      resendStatus.value = 'idle'
+    const code = err.response?.data?.error?.code;
+    if (code === "ALREADY_VERIFIED") {
+      auth.markEmailVerified();
+      resendStatus.value = "idle";
     } else {
-      resendStatus.value = 'error'
-      resendMessage.value = err.response?.data?.error?.message ?? 'Could not resend verification email.'
+      resendStatus.value = "error";
+      resendMessage.value =
+        err.response?.data?.error?.message ?? "Could not resend verification email.";
     }
   }
 }
 
 onMounted(() => {
-  store.fetchAll()
-  const token = localStorage.getItem('access_token')
+  store.fetchAll();
+  const token = localStorage.getItem("access_token");
   if (token) {
-    const sse = useSSE({ token })
-    sse.on<SSEUrlDeletedEvent>('url_deleted', store.handleUrlDeleted)
-    sse.on<SSEMetadataUpdatedEvent>('metadata_updated', store.handleMetadataUpdated)
+    const sse = useSSE({ token });
+    sse.on<SSEUrlDeletedEvent>("url_deleted", store.handleUrlDeleted);
+    sse.on<SSEMetadataUpdatedEvent>("metadata_updated", store.handleMetadataUpdated);
     // sse.close() is called automatically on unmount via onUnmounted inside useSSE
   }
-})
+});
 </script>
 
 <template>
   <div class="mx-auto max-w-4xl px-4 py-8 md:px-6">
-
     <!-- Header -->
     <div class="mb-6 flex items-start justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-bold text-foreground">Your URLs</h1>
-        <p class="mt-0.5 text-sm text-muted-foreground">
+        <h1 class="text-foreground text-2xl font-bold">Your URLs</h1>
+        <p class="text-muted-foreground mt-0.5 text-sm">
           {{ auth.user?.email }}
           <Badge variant="secondary" class="ml-1.5 capitalize">{{ auth.user?.plan_code }}</Badge>
           &middot;
-          {{ store.total }} URL{{ store.total !== 1 ? 's' : '' }}
+          {{ store.total }} URL{{ store.total !== 1 ? "s" : "" }}
         </p>
       </div>
     </div>
@@ -88,11 +89,13 @@ onMounted(() => {
             :disabled="resendStatus === 'sending'"
             @click="handleResend"
           >
-            {{ resendStatus === 'sending' ? 'Sending…' : 'Resend verification' }}
+            {{ resendStatus === "sending" ? "Sending…" : "Resend verification" }}
           </Button>
         </div>
       </AlertDescription>
-      <p v-if="resendStatus === 'error'" class="mt-1 text-xs text-destructive">{{ resendMessage }}</p>
+      <p v-if="resendStatus === 'error'" class="text-destructive mt-1 text-xs">
+        {{ resendMessage }}
+      </p>
     </Alert>
 
     <!-- Dead-link notifications (pushed via SSE) -->
@@ -103,9 +106,7 @@ onMounted(() => {
         class="border-red-200 bg-red-50 text-red-900"
       >
         <AlertDescription class="flex items-center justify-between gap-4">
-          <span class="text-sm">
-            <strong>Link removed:</strong> {{ n.message }}
-          </span>
+          <span class="text-sm"> <strong>Link removed:</strong> {{ n.message }} </span>
           <Button
             size="sm"
             variant="ghost"
@@ -128,6 +129,5 @@ onMounted(() => {
 
     <!-- URL list -->
     <UrlList />
-
   </div>
 </template>

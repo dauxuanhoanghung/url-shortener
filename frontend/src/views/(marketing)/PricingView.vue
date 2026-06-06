@@ -1,19 +1,14 @@
 <script setup lang="ts">
+import { computed, onMounted } from "vue";
+
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { useAuthStore } from "@/stores/authStore";
 import { usePlanStore } from "@/stores/planStore";
 import type { Plan } from "@/types";
-import { computed, onMounted } from "vue";
 
 const store = usePlanStore();
 const auth = useAuthStore();
@@ -50,30 +45,26 @@ function planFeatures(plan: Plan) {
 }
 
 const ctaLabel = computed(() => (plan: Plan) => {
-  if (!auth.isAuthenticated)
-    return plan.code === "free" ? "Sign up free" : "Get started";
+  if (!auth.isAuthenticated) return plan.code === "free" ? "Sign up free" : "Get started";
   if (isCurrentPlan(plan)) return "Current plan";
   return "Upgrade";
 });
 
-const ctaTo = (_plan: Plan) =>
-  !auth.isAuthenticated ? "/register" : "/dashboard";
+const ctaTo = (_plan: Plan) => (!auth.isAuthenticated ? "/register" : "/dashboard");
 </script>
 
 <template>
   <div class="mx-auto max-w-5xl px-4 py-12 md:px-6">
     <div class="mb-12 text-center">
-      <h1 class="text-4xl font-extrabold tracking-tight text-foreground">
+      <h1 class="text-foreground text-4xl font-extrabold tracking-tight">
         Simple, transparent pricing
       </h1>
-      <p class="mt-3 text-lg text-muted-foreground">
+      <p class="text-muted-foreground mt-3 text-lg">
         Start free. Upgrade when you need more power.
       </p>
     </div>
 
-    <p v-if="store.loading" class="text-center text-sm text-muted-foreground">
-      Loading plans…
-    </p>
+    <p v-if="store.loading" class="text-muted-foreground text-center text-sm">Loading plans…</p>
 
     <Alert v-else-if="store.error" variant="destructive" class="mb-6">
       <AlertDescription>{{ store.error }}</AlertDescription>
@@ -85,8 +76,7 @@ const ctaTo = (_plan: Plan) =>
         :key="plan.code"
         class="relative flex flex-col"
         :class="{
-          'border-primary shadow-md':
-            plan.code === 'pro' && !isCurrentPlan(plan),
+          'border-primary shadow-md': plan.code === 'pro' && !isCurrentPlan(plan),
           'border-emerald-500 shadow-sm': isCurrentPlan(plan),
         }"
       >
@@ -96,10 +86,7 @@ const ctaTo = (_plan: Plan) =>
         >
           <Badge class="px-3 text-xs">Most popular</Badge>
         </div>
-        <div
-          v-if="isCurrentPlan(plan)"
-          class="absolute left-1/2 -translate-x-1/2"
-        >
+        <div v-if="isCurrentPlan(plan)" class="absolute left-1/2 -translate-x-1/2">
           <Badge
             variant="outline"
             class="border-emerald-400 bg-emerald-50 px-3 text-xs text-emerald-700"
@@ -114,36 +101,30 @@ const ctaTo = (_plan: Plan) =>
             <span class="text-5xl font-extrabold tracking-tight">{{
               formatPrice(plan.price_cents)
             }}</span>
-            <span v-if="plan.price_cents > 0" class="text-muted-foreground"
-              >/month</span
-            >
+            <span v-if="plan.price_cents > 0" class="text-muted-foreground">/month</span>
           </div>
         </CardHeader>
 
         <CardContent class="flex-1 space-y-4">
-          <ul class="space-y-1 text-sm text-muted-foreground">
+          <ul class="text-muted-foreground space-y-1 text-sm">
             <li>
-              <span class="font-semibold text-foreground">{{
+              <span class="text-foreground font-semibold">{{
                 plan.max_urls.toLocaleString()
               }}</span>
               URLs
             </li>
             <li>
-              <span class="font-semibold text-foreground"
+              <span class="text-foreground font-semibold"
                 >{{ plan.analytics_retention_days }}d</span
               >
               analytics retention
             </li>
             <li v-if="plan.max_domains > 0">
-              <span class="font-semibold text-foreground">{{
-                plan.max_domains
-              }}</span>
+              <span class="text-foreground font-semibold">{{ plan.max_domains }}</span>
               custom domain{{ plan.max_domains > 1 ? "s" : "" }}
             </li>
             <li v-if="plan.api_rate_limit_per_min">
-              <span class="font-semibold text-foreground">{{
-                plan.api_rate_limit_per_min
-              }}</span>
+              <span class="text-foreground font-semibold">{{ plan.api_rate_limit_per_min }}</span>
               API req/min
             </li>
           </ul>
@@ -155,15 +136,11 @@ const ctaTo = (_plan: Plan) =>
               v-for="feat in planFeatures(plan)"
               :key="feat.label"
               class="flex items-center gap-2 text-sm"
-              :class="
-                feat.enabled ? 'text-foreground' : 'text-muted-foreground'
-              "
+              :class="feat.enabled ? 'text-foreground' : 'text-muted-foreground'"
             >
               <span
                 class="w-4 shrink-0 text-center font-bold"
-                :class="
-                  feat.enabled ? 'text-primary' : 'text-muted-foreground/40'
-                "
+                :class="feat.enabled ? 'text-primary' : 'text-muted-foreground/40'"
               >
                 {{ feat.enabled ? "✓" : "–" }}
               </span>
