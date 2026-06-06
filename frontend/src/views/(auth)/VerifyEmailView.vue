@@ -5,7 +5,7 @@ import { authService } from '@/services/authService'
 import { useAuthStore } from '@/stores/authStore'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -35,9 +35,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex min-h-[calc(100vh-3.5rem)] items-center justify-center px-4 py-12">
-    <Card class="w-full max-w-sm">
-      <CardHeader>
+  <CardHeader>
         <CardTitle class="text-2xl">Email verification</CardTitle>
       </CardHeader>
       <CardContent class="space-y-4">
@@ -76,6 +74,4 @@ onMounted(async () => {
         </template>
 
       </CardContent>
-    </Card>
-  </div>
 </template>

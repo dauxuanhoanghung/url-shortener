@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { urlService } from '../services/urlService'
-import { sseService } from '../services/sseService'
-import type { ShortURL, SSEUrlDeletedEvent, SSEMetadataUpdatedEvent } from '../types'
+import type { URLListParams } from '../services/urlService'
+import type { ShortURL, SSEMetadataUpdatedEvent, SSEUrlDeletedEvent } from '../types'
 
 export interface DeletedNotification {
   id: string
@@ -16,12 +16,13 @@ export const useUrlStore = defineStore('url', () => {
   const loading = ref(false)
   const error = ref('')
   const deletedNotifications = ref<DeletedNotification[]>([])
+  const filters = ref<URLListParams>({})
 
   async function fetchAll() {
     loading.value = true
     error.value = ''
     try {
-      const resp = await urlService.list()
+      const resp = await urlService.list(filters.value)
       if (resp.success && resp.data) {
         urls.value = resp.data.urls
         total.value = resp.data.total
@@ -31,6 +32,14 @@ export const useUrlStore = defineStore('url', () => {
     } finally {
       loading.value = false
     }
+  }
+
+  function setFilter(patch: Partial<URLListParams>) {
+    filters.value = { ...filters.value, ...patch }
+  }
+
+  function resetFilters() {
+    filters.value = {}
   }
 
   async function create(originalUrl: string): Promise<ShortURL | null> {
@@ -63,7 +72,6 @@ export const useUrlStore = defineStore('url', () => {
     }
   }
 
-  // Called by the SSE handler when the backend deletes a dead-link URL.
   function handleUrlDeleted(event: SSEUrlDeletedEvent) {
     urls.value = urls.value.filter((u) => u.id !== event.url_id)
     total.value = Math.max(0, total.value - 1)
@@ -72,10 +80,6 @@ export const useUrlStore = defineStore('url', () => {
       shortCode: event.short_code,
       message: `/${event.short_code} was removed — the original URL returned ${event.http_status || 'no response'}.`,
     })
-  }
-
-  function dismissNotification(id: string) {
-    deletedNotifications.value = deletedNotifications.value.filter((n) => n.id !== id)
   }
 
   function handleMetadataUpdated(event: SSEMetadataUpdatedEvent) {
@@ -90,14 +94,8 @@ export const useUrlStore = defineStore('url', () => {
     }
   }
 
-  function startSSE(token: string) {
-    sseService.connect(token)
-    sseService.onUrlDeleted(handleUrlDeleted)
-    sseService.onMetadataUpdated(handleMetadataUpdated)
-  }
-
-  function stopSSE() {
-    sseService.disconnect()
+  function dismissNotification(id: string) {
+    deletedNotifications.value = deletedNotifications.value.filter((n) => n.id !== id)
   }
 
   return {
@@ -105,14 +103,15 @@ export const useUrlStore = defineStore('url', () => {
     total,
     loading,
     error,
+    filters,
     deletedNotifications,
     fetchAll,
+    setFilter,
+    resetFilters,
     create,
     remove,
     handleUrlDeleted,
     handleMetadataUpdated,
     dismissNotification,
-    startSSE,
-    stopSSE,
   }
 })

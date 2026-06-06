@@ -14,8 +14,28 @@ export const useAuthStore = defineStore('auth', () => {
     const storedToken = localStorage.getItem('access_token')
     const storedUser = localStorage.getItem('user')
     if (storedToken && storedUser) {
+      if (isJwtExpired(storedToken)) {
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
+        localStorage.removeItem('user')
+        return
+      }
       accessToken.value = storedToken
       user.value = JSON.parse(storedUser)
+    }
+  }
+
+  function isJwtExpired(token: string): boolean {
+    try {
+      const payload = token.split('.')[1]
+      if (!payload) return true
+      const decoded = JSON.parse(
+        atob(payload.replace(/-/g, '+').replace(/_/g, '/')),
+      )
+      if (typeof decoded.exp !== 'number') return true
+      return decoded.exp * 1000 <= Date.now()
+    } catch {
+      return true
     }
   }
 

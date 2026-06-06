@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useAuthStore } from '@/stores/authStore'
 import { useUrlStore } from '@/stores/urlStore'
+import { useSSE } from '@/composables/useSSE'
 import { authService } from '@/services/authService'
 import UrlForm from '@/components/UrlForm.vue'
 import UrlList from '@/components/UrlList.vue'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import type { SSEUrlDeletedEvent, SSEMetadataUpdatedEvent } from '@/types'
 
 const auth = useAuthStore()
 const store = useUrlStore()
@@ -41,11 +43,12 @@ async function handleResend() {
 onMounted(() => {
   store.fetchAll()
   const token = localStorage.getItem('access_token')
-  if (token) store.startSSE(token)
-})
-
-onUnmounted(() => {
-  store.stopSSE()
+  if (token) {
+    const sse = useSSE({ token })
+    sse.on<SSEUrlDeletedEvent>('url_deleted', store.handleUrlDeleted)
+    sse.on<SSEMetadataUpdatedEvent>('metadata_updated', store.handleMetadataUpdated)
+    // sse.close() is called automatically on unmount via onUnmounted inside useSSE
+  }
 })
 </script>
 

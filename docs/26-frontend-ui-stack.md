@@ -15,8 +15,13 @@ Related: [16-frontend-folder-structure.md](16-frontend-folder-structure.md)
 | **@tailwindcss/vite** | —            | Vite plugin (replaces PostCSS config)                      | https://tailwindcss.com/docs/installation/using-vite |
 | **shadcn-vue**        | latest       | Copy-paste component library built on Tailwind + Radix Vue | https://www.shadcn-vue.com                           |
 | **Radix Vue**         | (transitive) | Headless accessible primitives (used by shadcn-vue)        | https://www.radix-vue.com                            |
+| **vee-validate**      | 4.x          | Form state, submission, field-level validation             | https://vee-validate.logaretm.com                    |
+| **zod**               | 3.x          | Schema definition; reused for type inference + validation  | https://zod.dev                                      |
+| **@vee-validate/zod** | 4.x          | Adapter that wires a zod schema into vee-validate          | https://vee-validate.logaretm.com/v4/integrations/zod-schema-validation/ |
 
-**Not in use**: Vuetify, Quasar, PrimeVue, Nuxt UI (Nuxt-specific — requires Nuxt framework).
+**Not in use**: Vuetify, Quasar, PrimeVue, Nuxt UI (Nuxt-specific — requires Nuxt framework), Vuelidate, FormKit.
+
+> Pin `zod` to `^3.24.0` until `@vee-validate/zod` supports zod v4 — the peer range is `^3.24.0`.
 
 ---
 
@@ -173,3 +178,103 @@ npx shadcn-vue@latest add button --overwrite
 ```
 
 shadcn-vue CLI itself is run via `npx` — no local install needed.
+
+---
+
+## Layouts
+
+Each route group has a layout component in `src/layouts/` whose template is
+just shared chrome plus a `<router-view />`. Views render *inside* their
+layout — they should not repeat the chrome.
+
+| Layout              | Wraps                          | Chrome it owns                                                                  |
+| ------------------- | ------------------------------ | ------------------------------------------------------------------------------- |
+| `MarketingLayout`   | `(marketing)/*`                | Pass-through (Landing/Pricing own their own hero/sections).                     |
+| `AuthLayout`        | `(auth)/*`                     | Centred full-height container + `Card max-w-sm` wrapper.                        |
+| `DashboardLayout`   | `(dashboard)/*`                | Pass-through today; reserved for future sidebar/topbar.                         |
+| `AdminLayout`       | `(admin)/*`                    | Page header, admin tabs (Users / Plans / Audit), Separator.                     |
+
+The global `Navbar` lives in `App.vue` and renders **above** every layout.
+
+### Auth views — pattern
+
+Because `AuthLayout` already renders the outer `<div>` + `<Card>`, an auth
+view's template starts directly with `<CardHeader>`:
+
+```vue
+<template>
+  <CardHeader class="space-y-1">
+    <CardTitle class="text-2xl">Log in</CardTitle>
+  </CardHeader>
+  <CardContent>
+    <!-- form here -->
+  </CardContent>
+</template>
+```
+
+Don't import `Card` in an auth view, and don't add another full-height
+wrapper — you'll end up with a card-in-a-card.
+
+---
+
+## Form validation (vee-validate + zod)
+
+All forms use **vee-validate** for field/submission state and **zod** for
+schemas. The native browser validator is disabled with `novalidate` on the
+`<form>` so error messages are consistent.
+
+### Pattern
+
+```vue
+<script setup lang="ts">
+import { useForm } from 'vee-validate'
+import { toTypedSchema } from '@vee-validate/zod'
+import { z } from 'zod'
+
+const schema = toTypedSchema(
+  z.object({
+    email: z.string().min(1, 'Email is required').email('Enter a valid email'),
+    password: z.string().min(1, 'Password is required'),
+  }),
+)
+
+const { defineField, handleSubmit, errors, isSubmitting } = useForm({
+  validationSchema: schema,
+  initialValues: { email: '', password: '' },
+})
+
+const [email, emailAttrs] = defineField('email')
+const [password, passwordAttrs] = defineField('password')
+
+const onSubmit = handleSubmit(async (values) => {
+  // call service; on failure set a serverError ref — do NOT reset the form
+})
+</script>
+
+<template>
+  <form novalidate @submit="onSubmit">
+    <Input v-model="email" v-bind="emailAttrs" type="email" />
+    <p v-if="errors.email" class="text-sm text-destructive">{{ errors.email }}</p>
+    <!-- ... -->
+  </form>
+</template>
+```
+
+### Rules
+
+1. **Schema first, not inline checks.** Cross-field rules (password confirm,
+   conditional required) live in `.refine()` on the schema.
+2. **Keep form values on submit failure.** vee-validate preserves field values
+   across re-renders by default — never call `resetForm()` in an error branch.
+   API errors go into a separate `serverError` ref shown above the form.
+3. **Disable native validation** with `novalidate` on the `<form>`. Don't mix
+   `required` / `minlength` HTML attributes with the zod schema — pick one
+   source of truth (zod).
+4. **Server-side errors** (bad credentials, taken email) are not validation
+   errors — show them in an `Alert variant="destructive"`, separate from field
+   errors.
+5. **One schema per form.** Place the schema inside the view file unless it's
+   reused — then promote to `src/schemas/`.
+
+See [LoginView.vue](../frontend/src/views/LoginView.vue) and
+[RegisterView.vue](../frontend/src/views/RegisterView.vue) for canonical examples.

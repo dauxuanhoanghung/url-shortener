@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authService } from "@/services/authService";
@@ -57,11 +57,7 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <div
-    class="flex min-h-[calc(100vh-3.5rem)] items-center justify-center px-4 py-12"
-  >
-    <Card class="w-full max-w-sm">
-      <CardHeader class="space-y-1">
+  <CardHeader class="space-y-1">
         <CardTitle class="text-2xl">Choose a new password</CardTitle>
       </CardHeader>
       <CardContent>
@@ -105,6 +101,4 @@ async function handleSubmit() {
           </form>
         </template>
       </CardContent>
-    </Card>
-  </div>
 </template>

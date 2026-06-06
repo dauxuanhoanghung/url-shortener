@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 const email = ref('')
 const submitted = ref(false)
@@ -25,9 +25,7 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <div class="flex min-h-[calc(100vh-3.5rem)] items-center justify-center px-4 py-12">
-    <Card class="w-full max-w-sm">
-      <CardHeader class="space-y-1">
+  <CardHeader class="space-y-1">
         <CardTitle class="text-2xl">Reset your password</CardTitle>
       </CardHeader>
       <CardContent>
@@ -57,6 +55,4 @@ async function handleSubmit() {
           <router-link to="/login" class="text-primary hover:underline">Back to login</router-link>
         </p>
       </CardContent>
-    </Card>
-  </div>
 </template>
