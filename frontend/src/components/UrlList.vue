@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { PencilIcon } from "lucide-vue-next";
 import { ref } from "vue";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import UrlTagsModal from "@/components/UrlTagsModal.vue";
 import { useUrlStore } from "@/stores/urlStore";
 import type { ShortURL } from "@/types";
 
@@ -11,6 +13,8 @@ const copiedId = ref<string | null>(null);
 // Track URLs whose og_image failed to load so we don't show the strip.
 // Keyed by url.id + og_image to reset when the image src changes via SSE.
 const brokenOgImages = ref(new Set<string>());
+const editingUrl = ref<ShortURL | null>(null);
+const isTagsModalOpen = ref(false);
 
 function ogImageKey(u: ShortURL) {
   return `${u.id}::${u.metadata?.og_image ?? ""}`;
@@ -39,6 +43,11 @@ async function copyLink(id: string, url: string) {
 async function handleDelete(id: string) {
   if (!confirm("Delete this shortened URL? This cannot be undone.")) return;
   await store.remove(id);
+}
+
+function openTagsModal(u: ShortURL) {
+  editingUrl.value = u;
+  isTagsModalOpen.value = true;
 }
 
 function formatDate(iso: string) {
@@ -77,7 +86,7 @@ function faviconSrc(u: ShortURL): string | null {
   >
     <p class="text-foreground text-sm font-medium">No shortened URLs yet.</p>
     <p class="text-muted-foreground mt-1 text-xs">
-      Paste a URL above to create your first short link.
+      Click "Shorten URL" above to create your first short link.
     </p>
   </div>
 
@@ -147,6 +156,13 @@ function faviconSrc(u: ShortURL): string | null {
           <p v-if="u.metadata?.description" class="text-muted-foreground mt-1 line-clamp-2 text-xs">
             {{ u.metadata.description }}
           </p>
+
+          <!-- Tags -->
+          <div v-if="u.tags && u.tags.length > 0" class="mt-2 flex flex-wrap gap-1">
+            <Badge v-for="tag in u.tags" :key="tag" variant="secondary" class="text-xs font-normal">
+              {{ tag }}
+            </Badge>
+          </div>
         </div>
 
         <!-- Actions -->
@@ -160,6 +176,15 @@ function faviconSrc(u: ShortURL): string | null {
               @click="copyLink(u.id, u.short_url)"
             >
               {{ copiedId === u.id ? "Copied!" : "Copy" }}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              class="h-7 px-2 text-xs"
+              title="Edit tags"
+              @click="openTagsModal(u)"
+            >
+              <PencilIcon class="h-3.5 w-3.5" />
             </Button>
             <Button
               size="sm"
@@ -189,4 +214,11 @@ function faviconSrc(u: ShortURL): string | null {
       </div>
     </div>
   </div>
+
+  <UrlTagsModal
+    v-if="editingUrl"
+    :open="isTagsModalOpen"
+    :url="editingUrl"
+    @update:open="isTagsModalOpen = $event"
+  />
 </template>

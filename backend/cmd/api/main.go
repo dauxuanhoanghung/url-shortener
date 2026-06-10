@@ -72,6 +72,7 @@ func main() {
 	userPlanRepo := repository.NewUserPlanRepository(pgPool)
 	urlRepo      := repository.NewURLRepository(pgPool)
 	metaRepo     := repository.NewURLMetadataRepository(pgPool)
+	tagRepo      := repository.NewTagRepository(pgPool)
 	tokenRepo    := repository.NewTokenRepository(pgPool)
 	planRepo     := repository.NewPlanRepository(pgPool)
 	auditRepo    := repository.NewAdminAuditRepository(pgPool)
@@ -104,13 +105,15 @@ func main() {
 	)
 
 	authService     := service.NewAuthService(userRepo, userPlanRepo, tokenRepo, bus, cfg.JWT.Secret)
-	urlService      := service.NewURLService(urlRepo, metaRepo, userPlanRepo, planRepo, bus)
+	tagService      := service.NewTagService(tagRepo, urlRepo)
+	urlService      := service.NewURLService(urlRepo, metaRepo, tagService, userPlanRepo, planRepo, bus)
 	planService     := service.NewPlanService(planRepo)
 	redirectService := service.NewRedirectService(urlRepo, appCache)
 	adminService    := service.NewAdminService(userRepo, userPlanRepo, planRepo, auditRepo)
 
 	authHandler     := handler.NewAuthHandler(authService)
 	urlHandler      := handler.NewURLHandler(urlService, cfg.Server.BaseURL)
+	tagHandler      := handler.NewTagHandler(tagService)
 	planHandler     := handler.NewPlanHandler(planService)
 	redirectHandler := handler.NewRedirectHandler(redirectService)
 	sseHandler      := handler.NewSSEHandler(sseHub)
@@ -119,6 +122,7 @@ func main() {
 	r := router.Setup(cfg.Server.Mode, cfg.JWT.Secret, userRepo, appCache, router.Handlers{
 		Auth:     authHandler,
 		URL:      urlHandler,
+		Tag:      tagHandler,
 		Plan:     planHandler,
 		Redirect: redirectHandler,
 		SSE:      sseHandler,

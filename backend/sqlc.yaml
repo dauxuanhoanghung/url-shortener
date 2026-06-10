@@ -8,6 +8,7 @@ sql:
       - migrations/0004_add_admin_accounts.sql
       - migrations/0005_extract_user_plans.sql
       - migrations/0006_add_url_metadata.sql
+      - migrations/0007_add_url_tags.sql
     queries: internal/repository/queries
     gen:
       go:

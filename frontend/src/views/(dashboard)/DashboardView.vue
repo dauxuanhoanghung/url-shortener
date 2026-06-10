@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { PlusIcon } from "lucide-vue-next";
 import { onMounted, ref } from "vue";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import UrlForm from "@/components/UrlForm.vue";
+import UrlCreateModal from "@/components/UrlCreateModal.vue";
 import UrlList from "@/components/UrlList.vue";
 import { useSSE } from "@/composables/useSSE";
 import { useAuthStore } from "@/stores/authStore";
@@ -14,6 +15,7 @@ import type { SSEMetadataUpdatedEvent, SSEUrlDeletedEvent } from "@/types";
 
 const auth = useAuthStore();
 const store = useUrlStore();
+const isCreateModalOpen = ref(false);
 
 const resendStatus = ref<"idle" | "sending" | "sent" | "error">("idle");
 const resendMessage = ref("");
@@ -67,6 +69,10 @@ onMounted(() => {
           {{ store.total }} URL{{ store.total !== 1 ? "s" : "" }}
         </p>
       </div>
+      <Button @click="isCreateModalOpen = true">
+        <PlusIcon class="mr-1.5 h-4 w-4" />
+        Shorten URL
+      </Button>
     </div>
 
     <!-- Email verification banner -->
@@ -119,9 +125,6 @@ onMounted(() => {
       </Alert>
     </div>
 
-    <!-- URL form -->
-    <UrlForm />
-
     <!-- Store error -->
     <Alert v-if="store.error" variant="destructive" class="mb-4">
       <AlertDescription>{{ store.error }}</AlertDescription>
@@ -129,5 +132,8 @@ onMounted(() => {
 
     <!-- URL list -->
     <UrlList />
+
+    <!-- Create URL modal -->
+    <UrlCreateModal v-model:open="isCreateModalOpen" />
   </div>
 </template>

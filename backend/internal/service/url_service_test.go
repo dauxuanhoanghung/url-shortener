@@ -36,7 +36,22 @@ func newService(
 	planRepo repository.PlanRepository,
 	bus event.EventBus,
 ) URLService {
-	return NewURLService(urlRepo, metaRepo, userPlanRepo, planRepo, bus)
+	// Real TagService over a stub repo so URL tests exercise the actual
+	// normalization rules without a database.
+	return NewURLService(urlRepo, metaRepo, NewTagService(&stubTagRepo{}, urlRepo), userPlanRepo, planRepo, bus)
+}
+
+// newServiceWithTagRepo is like newService but lets the test inspect the tag repo.
+func newServiceWithTagRepo(
+	urlRepo repository.URLRepository,
+	tagRepo repository.TagRepository,
+	bus event.EventBus,
+) URLService {
+	return NewURLService(urlRepo, &stubMetaRepo{}, NewTagService(tagRepo, urlRepo),
+		&stubUserPlanRepo{planCode: "free"},
+		&stubPlanRepo{plan: freePlan()},
+		bus,
+	)
 }
 
 func freePlan() *model.Plan {
@@ -190,6 +205,65 @@ func TestURLService_Create_MetadataFailure_StillReturnsURL(t *testing.T) {
 	}
 }
 
+func TestURLService_Create_WithTags_PersistsNormalized(t *testing.T) {
+	tagRepo := &stubTagRepo{}
+	svc := newServiceWithTagRepo(&stubURLRepo{}, tagRepo, &fakeBus{})
+
+	resp, err := svc.Create(context.Background(), uuid.New(), dto.CreateURLRequest{
+		OriginalURL: "https://example.com",
+		Tags:        []string{" Marketing ", "social", "MARKETING"},
+	}, testBaseURL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := []string{"Marketing", "social"} // trimmed, case-insensitively deduped
+	if !reflect.DeepEqual(resp.Tags, want) {
+		t.Errorf("tags: got %v want %v", resp.Tags, want)
+	}
+	if tagRepo.setCalls != 1 {
+		t.Errorf("expected 1 SetTagsForURL call, got %d", tagRepo.setCalls)
+	}
+}
+
+func TestURLService_Create_NoTags_SkipsTagRepo(t *testing.T) {
+	tagRepo := &stubTagRepo{}
+	svc := newServiceWithTagRepo(&stubURLRepo{}, tagRepo, &fakeBus{})
+
+	resp, err := svc.Create(context.Background(), uuid.New(), dto.CreateURLRequest{
+		OriginalURL: "https://example.com",
+	}, testBaseURL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Tags) != 0 {
+		t.Errorf("expected empty tags, got %v", resp.Tags)
+	}
+	if resp.Tags == nil {
+		t.Error("tags must be an empty slice, not nil (JSON contract)")
+	}
+	if tagRepo.setCalls != 0 {
+		t.Errorf("tag repo should not be called without tags, got %d calls", tagRepo.setCalls)
+	}
+}
+
+func TestURLService_Create_TagFailure_StillReturnsURL(t *testing.T) {
+	// Tag persistence is best-effort: a failure must not abort URL creation.
+	tagRepo := &stubTagRepo{setErr: errors.New("db down")}
+	svc := newServiceWithTagRepo(&stubURLRepo{}, tagRepo, &fakeBus{})
+
+	resp, err := svc.Create(context.Background(), uuid.New(), dto.CreateURLRequest{
+		OriginalURL: "https://example.com",
+		Tags:        []string{"a"},
+	}, testBaseURL)
+	if err != nil {
+		t.Fatalf("Create should succeed even when tag repo fails: %v", err)
+	}
+	if len(resp.Tags) != 0 {
+		t.Errorf("expected empty tags after tag failure, got %v", resp.Tags)
+	}
+}
+
 // ── List ──────────────────────────────────────────────────────────────────────
 
 func TestURLService_List_ReturnsItemsWithMetadata(t *testing.T) {
@@ -267,6 +341,34 @@ func TestURLService_List_DefaultLimit(t *testing.T) {
 	}
 	if urlRepo.lastLimit != defaultListLimit {
 		t.Errorf("limit: got %d want %d", urlRepo.lastLimit, defaultListLimit)
+	}
+}
+
+func TestURLService_List_PopulatesTags(t *testing.T) {
+	userID := uuid.New()
+	taggedID := uuid.New()
+	untaggedID := uuid.New()
+	rows := []repository.ShortURLWithMeta{
+		{URL: model.ShortURL{ID: taggedID, UserID: userID, ShortCode: "abc123", OriginalURL: "https://example.com", CreatedAt: time.Now()}},
+		{URL: model.ShortURL{ID: untaggedID, UserID: userID, ShortCode: "def456", OriginalURL: "https://other.com", CreatedAt: time.Now()}},
+	}
+
+	urlRepo := &stubURLRepo{withMetaRows: rows, count: len(rows)}
+	tagRepo := &stubTagRepo{tags: map[uuid.UUID][]string{taggedID: {"work", "docs"}}}
+	svc := newServiceWithTagRepo(urlRepo, tagRepo, &fakeBus{})
+
+	resp, err := svc.List(context.Background(), userID, 50, 0, testBaseURL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := []string{"work", "docs"}; !reflect.DeepEqual(resp.URLs[0].Tags, want) {
+		t.Errorf("first URL tags: got %v want %v", resp.URLs[0].Tags, want)
+	}
+	if resp.URLs[1].Tags == nil {
+		t.Error("untagged URL must have empty slice, not nil (JSON contract)")
+	}
+	if len(resp.URLs[1].Tags) != 0 {
+		t.Errorf("untagged URL tags: got %v want empty", resp.URLs[1].Tags)
 	}
 }
 
@@ -447,4 +549,47 @@ func (r *stubPlanRepo) UpdateFeatures(_ context.Context, _ string, features map[
 	out := *r.plan
 	out.Features = features
 	return &out, nil
+}
+
+// stubTagRepo satisfies repository.TagRepository.
+type stubTagRepo struct {
+	tags     map[uuid.UUID][]string
+	setErr   error
+	setCalls int
+}
+
+func (r *stubTagRepo) SetTagsForURL(_ context.Context, urlID uuid.UUID, tags []string) error {
+	r.setCalls++
+	if r.setErr != nil {
+		return r.setErr
+	}
+	if r.tags == nil {
+		r.tags = map[uuid.UUID][]string{}
+	}
+	r.tags[urlID] = tags
+	return nil
+}
+
+func (r *stubTagRepo) ListForURL(_ context.Context, urlID uuid.UUID) ([]string, error) {
+	if r.tags == nil {
+		return []string{}, nil
+	}
+	return r.tags[urlID], nil
+}
+
+func (r *stubTagRepo) ListForURLs(_ context.Context, urlIDs []uuid.UUID) (map[uuid.UUID][]string, error) {
+	result := make(map[uuid.UUID][]string, len(urlIDs))
+	for _, id := range urlIDs {
+		if r.tags != nil {
+			result[id] = r.tags[id]
+		}
+	}
+	return result, nil
+}
+
+func (r *stubTagRepo) DeleteAllForURL(_ context.Context, urlID uuid.UUID) error {
+	if r.tags != nil {
+		delete(r.tags, urlID)
+	}
+	return nil
 }

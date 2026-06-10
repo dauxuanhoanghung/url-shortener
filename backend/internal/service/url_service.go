@@ -40,6 +40,7 @@ type URLService interface {
 type urlService struct {
 	repo         repository.URLRepository
 	metaRepo     repository.URLMetadataRepository
+	tagSvc       TagService
 	userPlanRepo repository.UserPlanRepository
 	planRepo     repository.PlanRepository
 	bus          event.EventBus
@@ -48,6 +49,7 @@ type urlService struct {
 func NewURLService(
 	repo repository.URLRepository,
 	metaRepo repository.URLMetadataRepository,
+	tagSvc TagService,
 	userPlanRepo repository.UserPlanRepository,
 	planRepo repository.PlanRepository,
 	bus event.EventBus,
@@ -55,6 +57,7 @@ func NewURLService(
 	return &urlService{
 		repo:         repo,
 		metaRepo:     metaRepo,
+		tagSvc:       tagSvc,
 		userPlanRepo: userPlanRepo,
 		planRepo:     planRepo,
 		bus:          bus,
@@ -109,6 +112,15 @@ func (s *urlService) Create(ctx context.Context, userID uuid.UUID, req dto.Creat
 		return nil, ErrShortCodeRetry
 	}
 
+	resp := toURLResponse(created, nil, baseURL)
+
+	// Tags are best-effort on create: a tag failure never aborts the URL.
+	if len(req.Tags) > 0 {
+		if tags, err := s.tagSvc.SetTags(ctx, created.ID, req.Tags); err == nil {
+			resp.Tags = tags
+		}
+	}
+
 	// Metadata creation is best-effort; a failure skips the fetch job but
 	// does not fail the URL creation itself.
 	meta, err := s.metaRepo.Create(ctx, created.ID)
@@ -120,7 +132,7 @@ func (s *urlService) Create(ctx context.Context, userID uuid.UUID, req dto.Creat
 		})
 	}
 
-	return toURLResponse(created, nil, baseURL), nil
+	return resp, nil
 }
 
 func (s *urlService) List(ctx context.Context, userID uuid.UUID, limit, offset int, baseURL string) (*dto.ListURLResponse, error) {
@@ -141,9 +153,22 @@ func (s *urlService) List(ctx context.Context, userID uuid.UUID, limit, offset i
 		return nil, err
 	}
 
+	urlIDs := make([]uuid.UUID, 0, len(rows))
+	for i := range rows {
+		urlIDs = append(urlIDs, rows[i].URL.ID)
+	}
+	tagsMap, err := s.tagSvc.TagsForURLs(ctx, urlIDs)
+	if err != nil {
+		tagsMap = map[uuid.UUID][]string{}
+	}
+
 	items := make([]dto.URLResponse, 0, len(rows))
 	for i := range rows {
-		items = append(items, *toURLResponse(&rows[i].URL, rows[i].Metadata, baseURL))
+		r := toURLResponse(&rows[i].URL, rows[i].Metadata, baseURL)
+		if t, ok := tagsMap[rows[i].URL.ID]; ok && t != nil {
+			r.Tags = t
+		}
+		items = append(items, *r)
 	}
 	return &dto.ListURLResponse{URLs: items, Total: total}, nil
 }
@@ -197,6 +222,7 @@ func toURLResponse(u *model.ShortURL, meta *model.URLMetadata, baseURL string) *
 		ClickCount:  u.ClickCount,
 		CreatedAt:   u.CreatedAt,
 		LastAccess:  u.LastAccessedAt,
+		Tags:        []string{},
 	}
 	if meta != nil {
 		resp.Metadata = &dto.URLMetadataResponse{

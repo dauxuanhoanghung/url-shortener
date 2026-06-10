@@ -42,10 +42,10 @@ export const useUrlStore = defineStore("url", () => {
     filters.value = {};
   }
 
-  async function create(originalUrl: string): Promise<ShortURL | null> {
+  async function create(originalUrl: string, tags: string[] = []): Promise<ShortURL | null> {
     error.value = "";
     try {
-      const resp = await urlService.create(originalUrl);
+      const resp = await urlService.create(originalUrl, tags);
       if (resp.success && resp.data) {
         urls.value = [resp.data, ...urls.value];
         total.value += 1;
@@ -54,6 +54,22 @@ export const useUrlStore = defineStore("url", () => {
       return null;
     } catch (err: any) {
       error.value = err.response?.data?.error?.message || "Failed to create URL";
+      throw err;
+    }
+  }
+
+  async function updateTags(id: string, tags: string[]): Promise<void> {
+    error.value = "";
+    try {
+      const resp = await urlService.updateTags(id, tags);
+      if (resp.success && resp.data) {
+        const idx = urls.value.findIndex((u) => u.id === id);
+        if (idx !== -1) {
+          urls.value[idx] = { ...urls.value[idx], tags: resp.data.tags };
+        }
+      }
+    } catch (err: any) {
+      error.value = err.response?.data?.error?.message || "Failed to update tags";
       throw err;
     }
   }
@@ -109,6 +125,7 @@ export const useUrlStore = defineStore("url", () => {
     setFilter,
     resetFilters,
     create,
+    updateTags,
     remove,
     handleUrlDeleted,
     handleMetadataUpdated,

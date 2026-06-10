@@ -90,6 +90,14 @@ CREATE TABLE admin_audit (
     after       JSONB,
     created_at  TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+-- Free-text tags per short URL. Composite PK prevents duplicates per URL.
+-- Case-insensitive matching is applied at the query layer (LOWER(tag)).
+CREATE TABLE url_tags (
+    url_id UUID NOT NULL REFERENCES short_urls(id) ON DELETE CASCADE,
+    tag    TEXT NOT NULL,
+    PRIMARY KEY (url_id, tag)
+);
 ```
 
 ## Indexes
@@ -106,6 +114,9 @@ CREATE INDEX idx_tokens_expires      ON tokens(expires_at);
 CREATE INDEX idx_users_role          ON users(role) WHERE role = 'admin';
 CREATE INDEX idx_admin_audit_actor   ON admin_audit(actor_id, created_at DESC);
 CREATE INDEX idx_admin_audit_target  ON admin_audit(target_type, target_id);
+-- url_tags indexes
+CREATE INDEX idx_url_tags_url_id ON url_tags(url_id);
+CREATE INDEX idx_url_tags_tag    ON url_tags(LOWER(tag));
 ```
 
 ---
@@ -119,6 +130,8 @@ CREATE INDEX idx_admin_audit_target  ON admin_audit(target_type, target_id);
 | `0003_add_user_lifecycle.sql` | users.email_verified_at, tokens                                            |
 | `0004_add_admin_accounts.sql` | users.role + CHECK, users.disabled_at, admin_audit                         |
 | `0005_extract_user_plans.sql` | user_plans table; drops users.plan_code + users.plan_type                  |
+| `0006_add_url_metadata.sql`   | url_metadata table (title, og_image, fetch_status)                         |
+| `0007_add_url_tags.sql`       | url_tags table (url_id, tag) with case-insensitive index                   |
 
 All migrations applied in order. **Never modify an applied migration.**
 

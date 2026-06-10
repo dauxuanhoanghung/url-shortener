@@ -92,8 +92,10 @@ Authorization: Bearer <user token>
 Request:
 
 ```json
-{ "original_url": "https://example.com" }
+{ "original_url": "https://example.com", "tags": ["marketing", "social"] }
 ```
+
+`tags` is optional (max 20 items, max 50 chars each).
 
 Response:
 
@@ -101,7 +103,8 @@ Response:
 {
   "id": "uuid",
   "short_code": "abc123",
-  "short_url": "https://short.ly/abc123"
+  "short_url": "https://short.ly/abc123",
+  "tags": ["marketing", "social"]
 }
 ```
 
@@ -114,11 +117,38 @@ the 7-day grace window and still unverified.
 GET /urls
 ```
 
+Response includes `tags: string[]` on every URL object.
+
 ### Delete URL
 
 ```text
 DELETE /urls/:id
 ```
+
+### Update URL Tags
+
+```text
+PUT /urls/:id/tags
+Authorization: Bearer <user token>
+```
+
+Request:
+
+```json
+{ "tags": ["new-tag", "another"] }
+```
+
+Replaces the entire tag list for the URL (pass `[]` or omit to clear all tags).
+Tags are trimmed and deduplicated case-insensitively (first casing wins).
+Max 20 tags per URL, max 50 chars per tag.
+
+Response:
+
+```json
+{ "success": true, "data": { "tags": ["new-tag", "another"] } }
+```
+
+Error codes: `URL_NOT_FOUND` (404), `URL_FORBIDDEN` (403), `TAG_LIMIT_EXCEEDED` (400).
 
 ---
 

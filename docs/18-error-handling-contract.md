@@ -42,7 +42,10 @@ All APIs must return a consistent error format.
 
 - `INVALID_URL` — scheme not http(s), or blocked scheme (javascript:, data:, file:)
 - `SHORT_CODE_NOT_FOUND` — redirect target does not exist
+- `URL_NOT_FOUND` — URL lookup by ID returned no result (404)
+- `URL_FORBIDDEN` — authenticated user does not own the URL (403)
 - `PLAN_LIMIT_REACHED` — user has hit max_urls for their plan
+- `TAG_LIMIT_EXCEEDED` — more than 20 tags submitted for a URL (400)
 
 ---
 

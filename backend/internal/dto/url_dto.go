@@ -3,7 +3,18 @@ package dto
 import "time"
 
 type CreateURLRequest struct {
-	OriginalURL string `json:"original_url" binding:"required,url"`
+	OriginalURL string   `json:"original_url" binding:"required,url"`
+	Tags        []string `json:"tags" binding:"omitempty,max=20,dive,min=1,max=50"`
+}
+
+// UpdateURLTagsRequest replaces the full tag list. Omitted or empty tags
+// clears all tags for the URL.
+type UpdateURLTagsRequest struct {
+	Tags []string `json:"tags" binding:"omitempty,max=20,dive,min=1,max=50"`
+}
+
+type URLTagsResponse struct {
+	Tags []string `json:"tags"`
 }
 
 type URLMetadataResponse struct {
@@ -23,6 +34,7 @@ type URLResponse struct {
 	CreatedAt   time.Time            `json:"created_at"`
 	LastAccess  *time.Time           `json:"last_accessed_at,omitempty"`
 	Metadata    *URLMetadataResponse `json:"metadata"`
+	Tags        []string             `json:"tags"`
 }
 
 type ListURLResponse struct {

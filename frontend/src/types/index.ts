@@ -38,7 +38,11 @@ export interface ShortURL {
   created_at: string;
   last_accessed_at?: string | null;
   metadata: URLMetadata | null;
+  tags: string[];
 }
+
+export type UpdateTagsRequest = { tags: string[] };
+export type URLTagsResponse = { tags: string[] };
 
 export interface SSEUrlDeletedEvent {
   url_id: string;

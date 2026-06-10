@@ -14,6 +14,7 @@ import (
 type Handlers struct {
 	Auth     *handler.AuthHandler
 	URL      *handler.URLHandler
+	Tag      *handler.TagHandler
 	Redirect *handler.RedirectHandler
 	Plan     *handler.PlanHandler
 	SSE      *handler.SSEHandler
@@ -60,6 +61,7 @@ func Setup(mode string, jwtSecret string, userRepo repository.UserRepository, ap
 				urls.POST("", middleware.VerifiedEmailRequired(userRepo), middleware.RateLimit(limiter, 30, time.Minute), h.URL.Create)
 				urls.GET("", h.URL.List)
 				urls.DELETE("/:id", h.URL.Delete)
+				urls.PUT("/:id/tags", h.Tag.UpdateTags)
 			}
 
 			admin := authed.Group("/admin")

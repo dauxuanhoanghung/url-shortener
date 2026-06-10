@@ -1,4 +1,4 @@
-import type { ApiResponse, ListURLResponse, ShortURL } from "../types";
+import type { ApiResponse, ListURLResponse, ShortURL, URLTagsResponse } from "../types";
 import api from "./api";
 
 export interface URLListParams {
@@ -12,9 +12,10 @@ export interface URLListParams {
 }
 
 export const urlService = {
-  async create(originalUrl: string): Promise<ApiResponse<ShortURL>> {
+  async create(originalUrl: string, tags: string[] = []): Promise<ApiResponse<ShortURL>> {
     const { data } = await api.post<ApiResponse<ShortURL>>("/urls", {
       original_url: originalUrl,
+      tags,
     });
     return data;
   },
@@ -34,6 +35,11 @@ export const urlService = {
 
   async remove(id: string): Promise<ApiResponse<null>> {
     const { data } = await api.delete<ApiResponse<null>>(`/urls/${id}`);
+    return data;
+  },
+
+  async updateTags(id: string, tags: string[]): Promise<ApiResponse<URLTagsResponse>> {
+    const { data } = await api.put<ApiResponse<URLTagsResponse>>(`/urls/${id}/tags`, { tags });
     return data;
   },
 };
